@@ -2,6 +2,7 @@
 Lumix Trading System Configuration
 """
 
+import os
 from src.config.settings import TRADING_CONFIG
 
 # Token Addresses

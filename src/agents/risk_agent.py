@@ -60,27 +60,64 @@ class RiskAgent:
             return default_analysis
             
     def check_circuit_breakers(self, trade_data: dict) -> tuple[bool, str]:
-        """Check multi-layer circuit breakers"""
+        """Check multi-layer circuit breakers with dynamic thresholds"""
         try:
-            # Circuit breaker 1: Single trade loss
-            if trade_data.get('unrealized_loss_percentage', 0) > 2:
-                return False, "Single trade loss exceeds 2% - reducing position by 50%"
+            # Dynamic loss threshold based on volatility
+            volatility = trade_data.get('market_volatility', 0)
+            max_loss = 0.02 * (1 + volatility)  # Increase threshold in high volatility
+            
+            # Circuit breaker 1: Single trade loss with dynamic threshold
+            if trade_data.get('unrealized_loss_percentage', 0) > max_loss:
+                return False, f"Loss exceeds {max_loss:.1%} threshold - reducing position by 50%"
                 
-            # Circuit breaker 2: Market volatility
-            if trade_data.get('market_volatility', 0) > 0.3:
-                return False, "Market volatility exceeds 30% - halting trading"
+            # Circuit breaker 2: Liquidity depth check
+            if trade_data.get('liquidity_score', 1) < 0.5:
+                return False, "Insufficient liquidity depth - halting trading"
                 
-            # Circuit breaker 3: Portfolio volatility
-            if trade_data.get('portfolio_volatility', 0) > 0.25:
-                return False, "Portfolio volatility high - reducing leverage to 50%"
+            # Circuit breaker 3: Smart contract risk
+            if trade_data.get('contract_risk_score', 0) > 0.7:
+                return False, "High contract risk detected - halting trading"
+                
+            # Circuit breaker 4: Portfolio volatility with dynamic threshold
+            portfolio_volatility = trade_data.get('portfolio_volatility', 0)
+            if portfolio_volatility > 0.25 * (1 + volatility):
+                return False, f"Portfolio volatility exceeds {(0.25 * (1 + volatility)):.1%} - reducing leverage"
                 
             return True, ""
         except Exception as e:
             print(f"Error in circuit breakers: {e}")
             return False, f"Circuit breaker error: {str(e)}"
             
+    def calculate_contract_risk(self, token_data: dict) -> float:
+        """Calculate contract risk score based on multiple factors"""
+        try:
+            # Get token data
+            age = float(token_data.get('contract_age_days', 0))
+            verified = bool(token_data.get('is_verified', False))
+            audit_count = int(token_data.get('audit_count', 0))
+            owner_balance = float(token_data.get('owner_balance_percentage', 100))
+            
+            # Calculate risk components
+            age_risk = max(0, min(1, 30 / age if age > 0 else 1))
+            verification_risk = 0.0 if verified else 0.5
+            audit_risk = max(0, min(1, 1 - (audit_count * 0.25)))
+            ownership_risk = max(0, min(1, owner_balance / 50))
+            
+            # Weighted risk score
+            risk_score = (
+                0.3 * age_risk +
+                0.3 * verification_risk +
+                0.2 * audit_risk +
+                0.2 * ownership_risk
+            )
+            
+            return float(risk_score)
+        except Exception as e:
+            print(f"Error calculating contract risk: {e}")
+            return 1.0  # Return maximum risk on error
+            
     def analyze_risk(self, portfolio_data: dict) -> dict:
-        """Analyze portfolio risk with circuit breakers"""
+        """Analyze portfolio risk with enhanced risk metrics"""
         if not portfolio_data or not isinstance(portfolio_data, dict):
             return {
                 'risk_level': 'high',
@@ -90,6 +127,12 @@ class RiskAgent:
             }
             
         try:
+            # Calculate contract risk for each position
+            positions = portfolio_data.get('positions', {})
+            for token, data in positions.items():
+                contract_risk = self.calculate_contract_risk(data)
+                portfolio_data['contract_risk_score'] = contract_risk
+            
             # Check circuit breakers first
             circuit_ok, circuit_msg = self.check_circuit_breakers(portfolio_data)
             if not circuit_ok:
@@ -106,6 +149,8 @@ class RiskAgent:
             Position Sizes: {portfolio_data.get('positions', {})}
             Market Volatility: {portfolio_data.get('market_volatility', 0):.2%}
             Portfolio Volatility: {portfolio_data.get('portfolio_volatility', 0):.2%}
+            Contract Risk Score: {portfolio_data.get('contract_risk_score', 0):.2%}
+            Liquidity Score: {portfolio_data.get('liquidity_score', 0):.2%}
             """
             
             if self.model:
