@@ -17,6 +17,7 @@ from src.data.ohlcv_collector import collect_all_tokens
 from src.agents.focus_agent import MODEL_TYPE, MODEL_NAME
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
+from src.data.chainstack_client import ChainStackClient
 import json
 from pathlib import Path
 from src.config import (
