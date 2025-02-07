@@ -26,11 +26,13 @@ from src.data.chainstack_client import ChainStackClient
 from src.data.jupiter_client import JupiterClient
 from src.config import (
     USDC_ADDRESS,
+    SOL_ADDRESS,
     SLIPPAGE,
     USDC_SIZE,
     sell_at_multiple,
     stop_loss_perctentage as STOP_LOSS_PERCENTAGE,
-    WALLET_ADDRESS
+    WALLET_ADDRESS,
+    USE_SOL_FOR_TRADING
 )
 
 # Constants
@@ -169,11 +171,13 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
         wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
         wallet_pubkey = str(wallet_key.pubkey())
         
-        # Get quote for USDC to token swap
+        # Get quote using SOL or USDC as input
+        input_mint = SOL_ADDRESS if USE_SOL_FOR_TRADING else USDC_ADDRESS
+        input_decimals = 9 if USE_SOL_FOR_TRADING else 6
         quote = jupiter.get_quote(
-            input_mint=USDC_ADDRESS,
+            input_mint=input_mint,
             output_mint=token,
-            amount=int(amount)
+            amount=int(amount * 10**input_decimals)
         )
         if not quote:
             return False
@@ -200,11 +204,13 @@ def market_sell(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
         wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
         wallet_pubkey = str(wallet_key.pubkey())
         
-        # Get quote for token to USDC swap
+        # Get quote for token to SOL/USDC swap
+        output_mint = SOL_ADDRESS if USE_SOL_FOR_TRADING else USDC_ADDRESS
+        output_decimals = 9 if USE_SOL_FOR_TRADING else 6
         quote = jupiter.get_quote(
             input_mint=token,
-            output_mint=USDC_ADDRESS,
-            amount=int(amount)
+            output_mint=output_mint,
+            amount=int(amount * 10**output_decimals)
         )
         if not quote:
             return False
