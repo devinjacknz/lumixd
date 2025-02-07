@@ -27,7 +27,7 @@ from src.config import (
     USDC_SIZE,
     MAX_LOSS_PERCENTAGE,
     SLIPPAGE,
-    TRADING_INTERVAL,
+    TRADE_INTERVAL,
     MIN_SOL_BALANCE,
     MIN_USDC_BALANCE,
     CREATE_ATA_IF_MISSING,
@@ -556,7 +556,7 @@ class TradingAgent:
                     if health_metrics.get('cpu_usage', 0) > 80:
                         cprint("⚠️ High CPU usage detected!", "yellow")
                         
-                time.sleep(TRADING_INTERVAL * 60)
+                time.sleep(TRADE_INTERVAL)
                 
         except KeyboardInterrupt:
             print("\nTrading Agent shutting down...")
