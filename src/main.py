@@ -65,7 +65,7 @@ def run_agents():
                     for token in MONITORED_TOKENS:
                         if token not in EXCLUDED_TOKENS:  # Skip USDC and other excluded tokens
                             cprint(f"\n🔍 Analyzing {token}...", "cyan")
-                            strategy_agent.get_signals(token)
+                            strategy_agent.analyze_market_data({'symbol': token})
 
                 # Run CopyBot Analysis
                 if copybot_agent:

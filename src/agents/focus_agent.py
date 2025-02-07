@@ -158,7 +158,8 @@ class FocusAgent:
         
         while self.model is None and retry_count < max_retries:
             try:
-                self.model = model_factory.get_model(MODEL_TYPE, MODEL_NAME)
+                self.model_factory = ModelFactory()
+                self.model = self.model_factory.get_model(MODEL_TYPE)
                 if self.model and hasattr(self.model, 'generate_response'):
                     break
                 raise ValueError("Could not initialize model")
