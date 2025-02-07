@@ -9,6 +9,7 @@ from termcolor import cprint
 from solders.keypair import Keypair
 from solders.transaction import Transaction
 from solders.hash import Hash
+from solders.message import Message
 from dotenv import load_dotenv
 
 os.makedirs("logs", exist_ok=True)
@@ -87,9 +88,8 @@ class JupiterClient:
                 return None
                 
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx = Transaction.from_bytes(base64.b64decode(unsigned_tx))
-            blockhash = Hash.from_string(blockhash_data["blockhash"])
-            tx.sign([wallet_key], blockhash)
+            message = Message.from_bytes(base64.b64decode(unsigned_tx))
+            tx = Transaction([wallet_key], message, Hash.from_string(blockhash_data["blockhash"]))
             
             response = requests.post(
                 self.rpc_url,
