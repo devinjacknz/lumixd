@@ -6,7 +6,7 @@ A real-time trading system powered by Helius API and Jupiter V6 Swap API for Sol
 1. Install Ollama: Follow instructions at https://ollama.ai/
 2. Pull the DeepSeek R1 1.5B model:
    ```bash
-   ollama pull deepseek-coder:1.5b
+   ollama pull deepseek-r1:1.5b
    ```
 3. Start Ollama server:
    ```bash
