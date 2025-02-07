@@ -36,7 +36,7 @@ class JupiterClient:
             time.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    def get_quote(self, input_mint: str, output_mint: str, amount: str) -> Optional[Dict]:
+    def get_quote(self, input_mint: str, output_mint: str, amount: str, use_shared_accounts: bool = True, force_simpler_route: bool = True) -> Optional[Dict]:
         try:
             self._rate_limit()
             url = f"{self.base_url}/quote"
@@ -45,7 +45,9 @@ class JupiterClient:
                 "outputMint": output_mint,
                 "amount": amount,
                 "slippageBps": 250,
-                "platformFeeBps": 0
+                "platformFeeBps": 0,
+                "useSharedAccounts": use_shared_accounts,
+                "forceSimplestRoute": force_simpler_route
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
@@ -57,7 +59,7 @@ class JupiterClient:
             cprint(f"❌ Failed to get quote: {str(e)}", "red")
             return None
             
-    def execute_swap(self, quote_response: Dict, wallet_pubkey: str) -> Optional[str]:
+    def execute_swap(self, quote_response: Dict, wallet_pubkey: str, use_shared_accounts: bool = True) -> Optional[str]:
         try:
             self._rate_limit()
             url = f"{self.base_url}/swap"
@@ -67,8 +69,10 @@ class JupiterClient:
                 "wrapUnwrapSOL": True,
                 "computeUnitPriceMicroLamports": 1000,
                 "asLegacyTransaction": True,
-                "useSharedAccounts": True,
-                "dynamicComputeUnitLimit": True
+                "useSharedAccounts": use_shared_accounts,
+                "dynamicComputeUnitLimit": True,
+                "maxRetries": 3,
+                "skipPreflight": True
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
