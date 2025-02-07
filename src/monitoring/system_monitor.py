@@ -31,6 +31,12 @@ class SystemMonitor:
             
             self.performance_monitor.log_system_health(metrics)
             return metrics
+        except Exception as e:
+            self.performance_monitor.logger.error(f"System health check failed: {str(e)}")
+            return {
+                'status': 'unhealthy',
+                'error': str(e)
+            }
             
     def check_instance_health(self, instance_id: str) -> Dict[str, Any]:
         try:
