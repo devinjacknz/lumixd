@@ -129,3 +129,24 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
 
 ## License
 MIT License
+
+## API Documentation / API文档
+
+### Trading API / 交易API
+- POST /api/v1/trades/execute - Execute trade / 执行交易
+- GET /api/v1/trades/history - Get trade history / 获取交易历史
+- GET /api/v1/trades/status - Get trading status / 获取交易状态
+
+### Strategy API / 策略API
+- POST /api/v1/strategies/create - Create custom strategy / 创建自定义策略
+- GET /api/v1/strategies/list - List all strategies / 列出所有策略
+- PUT /api/v1/strategies/{id}/update - Update strategy / 更新策略
+- POST /api/v1/strategies/{id}/execute - Execute strategy / 执行策略
+
+### Configuration API / 配置API
+- GET /api/v1/config - Get system config / 获取系统配置
+- PUT /api/v1/config/update - Update config / 更新配置
+
+### Monitoring API / 监控API
+- GET /api/v1/monitor/health - System health / 系统健康
+- GET /api/v1/monitor/performance - Performance metrics / 性能指标
