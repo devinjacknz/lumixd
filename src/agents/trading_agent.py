@@ -25,7 +25,8 @@ from src.config import (
 from src.nice_funcs import (
     market_buy,
     market_sell,
-    fetch_wallet_holdings_og
+    fetch_wallet_holdings_og,
+    calculate_atr
 )
 
 # Load environment variables
@@ -96,18 +97,23 @@ class TradingAgent:
         return (0.6 * strategy_signal + 0.3 * sentiment_score + 0.1 * (1 - volatility))
         
     def calculate_position_size(self, token_data: dict) -> float:
-        """Calculate dynamic position size based on volatility and risk"""
+        """Calculate dynamic position size based on ATR and portfolio value"""
         try:
-            volatility = token_data.get('volatility', 0.2)  # Default 20% volatility
-            portfolio_value = float(token_data.get('portfolio_value', 0))
-            
-            # Dynamic position sizing based on volatility
-            position_size = min(
-                USDC_SIZE * (1 - volatility),  # Reduce size in high volatility
-                portfolio_value * self.max_position_size
+            atr = calculate_atr(
+                token_data.get('high_prices', []),
+                token_data.get('low_prices', []),
+                token_data.get('close_prices', [])
             )
             
-            return max(position_size, 0)  # Ensure non-negative
+            portfolio_value = float(token_data.get('portfolio_value', 0))
+            max_risk_amount = portfolio_value * 0.01  # 1% risk per trade
+            
+            position_size = min(
+                max_risk_amount / (atr if atr > 0 else 1),
+                portfolio_value * 0.05  # 5% max position size
+            )
+            
+            return max(position_size, 0)
         except Exception as e:
             print(f"Error calculating position size: {e}")
             return 0
