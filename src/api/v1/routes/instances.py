@@ -9,6 +9,7 @@ from src.api.v1.models.trading_instance import (
     TradingInstanceCreate,
     TradingInstanceUpdate
 )
+from src.api.v1.models.instance_validator import InstanceValidator
 from src.api.v1.models.strategy import Strategy
 from src.api.v1.routes.trades import TradeRequest
 from src.api.v1.routes.strategies import strategies_db
@@ -50,6 +51,11 @@ async def create_instance(
         amount_sol=instance.amount_sol,
         parameters=params)
     
+    # Validate instance configuration
+    is_valid, error_msg = InstanceValidator.validate_instance(new_instance, instances_db)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+        
     if not instance_manager.create_instance(new_instance):
         raise HTTPException(status_code=500, detail="Failed to create trading instance")
         
@@ -94,6 +100,11 @@ async def update_instance(
         if update_data["strategy_id"] not in strategies_db:
             raise HTTPException(status_code=404, detail="Strategy not found")
             
+    # Validate updated instance configuration
+    is_valid, error_msg = InstanceValidator.validate_instance(instance, instances_db)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+        
     if not instance_manager.update_instance(instance_id, instance):
         raise HTTPException(status_code=500, detail="Failed to update trading instance")
     
