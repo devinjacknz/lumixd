@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List, Optional
-from pydantic import BaseModel
+from src.api.v1.models.strategy import Strategy, apply_strategy_parameters
 
 router = APIRouter()
 
-class Strategy(BaseModel):
+class StrategyCreate(BaseModel):
     name: str
     description: str
     parameters: Dict[str, Any]

@@ -1,9 +1,13 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 import os
+import time
 from pydantic import BaseModel
+from src.utils.env import get_env_var
 from src.data.jupiter_client import JupiterClient
 from src.monitoring.performance_monitor import PerformanceMonitor
+from src.api.v1.models.strategy import Strategy, apply_strategy_parameters
+from src.api.v1.routes.strategies import strategies_db
 
 router = APIRouter()
 jupiter_client = JupiterClient()
@@ -14,6 +18,10 @@ class TradeRequest(BaseModel):
     output_token: str
     amount_sol: float
     slippage_bps: Optional[int] = 250
+    strategy_id: Optional[str] = None
+    max_retries: Optional[int] = 3
+    use_shared_accounts: Optional[bool] = True
+    force_simpler_route: Optional[bool] = True
 
 class TradeResponse(BaseModel):
     transaction_signature: str
@@ -24,20 +32,63 @@ class TradeResponse(BaseModel):
 @router.post("/execute", response_model=TradeResponse)
 async def execute_trade(trade: TradeRequest):
     try:
+        if trade.strategy_id and trade.strategy_id in strategies_db:
+            strategy = strategies_db[trade.strategy_id]
+            if not strategy.active:
+                raise HTTPException(status_code=400, detail="Strategy is not active")
+            trade = apply_strategy_parameters(trade, strategy)
+            
         amount_lamports = int(trade.amount_sol * 1e9)
-        quote = jupiter_client.get_quote(
-            trade.input_token,
-            trade.output_token,
-            str(amount_lamports),
-            use_shared_accounts=True,
-            force_simpler_route=True
-        )
+        retries = 0
+        last_error = None
+        
+        while retries < trade.max_retries:
+            try:
+                quote = jupiter_client.get_quote(
+                    trade.input_token,
+                    trade.output_token,
+                    str(amount_lamports),
+                    use_shared_accounts=trade.use_shared_accounts,
+                    force_simpler_route=trade.force_simpler_route
+                )
+                if not quote:
+                    raise HTTPException(status_code=400, detail="Failed to get quote")
+                    
+                signature = jupiter_client.execute_swap(
+                    quote,
+                    get_env_var("WALLET_ADDRESS"),
+                    use_shared_accounts=trade.use_shared_accounts
+                )
+                if not signature:
+                    raise HTTPException(status_code=400, detail="Failed to execute trade")
+                    
+                performance_monitor.log_trade_metrics({
+                    "success": True,
+                    "token": trade.output_token,
+                    "amount": trade.amount_sol,
+                    "execution_time": time.time(),
+                    "slippage": float(quote.get("priceImpactPct", 0))
+                })
+                    
+                return TradeResponse(
+                    transaction_signature=signature,
+                    input_amount=float(quote["inAmount"]) / 1e9,
+                    output_amount=float(quote["outAmount"]),
+                    price_impact=float(quote.get("priceImpactPct", 0))
+                )
+            except Exception as e:
+                last_error = str(e)
+                retries += 1
+                if retries < trade.max_retries:
+                    time.sleep(2 ** retries)  # Exponential backoff
+                    
+        raise HTTPException(status_code=500, detail=f"Failed after {trade.max_retries} retries: {last_error}")
         if not quote:
             raise HTTPException(status_code=400, detail="Failed to get quote")
             
         signature = jupiter_client.execute_swap(
             quote,
-            os.getenv("WALLET_ADDRESS"),
+            get_env_var("WALLET_ADDRESS"),
             use_shared_accounts=True
         )
         if not signature:
