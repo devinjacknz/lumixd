@@ -4,7 +4,7 @@ Lumix Trading System Configuration
 
 # Token Addresses
 USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # USDC token address
-SOL_ADDRESS = "So11111111111111111111111111111112"   # Native SOL token address
+SOL_ADDRESS = "So11111111111111111111111111111111111111111"   # Native SOL token address
 
 # Trading Exclusions
 EXCLUDED_TOKENS = [USDC_ADDRESS, SOL_ADDRESS]  # Never trade these tokens

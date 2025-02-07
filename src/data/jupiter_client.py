@@ -25,6 +25,7 @@ class JupiterClient:
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests
         self.rpc_url = os.getenv("RPC_ENDPOINT")
+        self.sol_token = "So11111111111111111111111111111111111111111"
         if not self.rpc_url:
             raise ValueError("RPC_ENDPOINT environment variable is required")
         
@@ -36,7 +37,7 @@ class JupiterClient:
             time.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    def get_quote(self, input_mint: str, output_mint: str, amount: float) -> Optional[Dict]:
+    def get_quote(self, input_mint: str, output_mint: str, amount: str) -> Optional[Dict]:
         """Get quote for token swap"""
         try:
             self._rate_limit()
@@ -45,9 +46,10 @@ class JupiterClient:
             params = {
                 "inputMint": input_mint,
                 "outputMint": output_mint,
-                "amount": str(amount),  # Convert to string to avoid integer overflow
-                "slippageBps": self.slippage_bps,
-                "maxAccounts": 54
+                "amount": amount,
+                "slippageBps": 250,
+                "onlyDirectRoutes": True,
+                "asLegacyTransaction": True
             }
             response = requests.get(url, params=params)
             response.raise_for_status()
