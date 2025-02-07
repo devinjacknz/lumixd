@@ -41,12 +41,6 @@ class JupiterClient:
             self._rate_limit()
             url = f"{self.base_url}/quote"
             
-            # Convert amount to proper decimal places
-            if input_mint == "So11111111111111111111111111111111112":  # SOL
-                amount = int(amount * 1e9)  # 9 decimals for SOL
-            else:
-                amount = int(amount * 1e6)  # 6 decimals for other tokens
-                
             params = {
                 "inputMint": input_mint,
                 "outputMint": output_mint,
