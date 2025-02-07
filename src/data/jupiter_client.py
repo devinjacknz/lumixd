@@ -47,9 +47,7 @@ class JupiterClient:
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250,
-                "onlyDirectRoutes": True,
-                "asLegacyTransaction": True
+                "slippageBps": 250
             }
             response = requests.get(url, params=params)
             response.raise_for_status()
