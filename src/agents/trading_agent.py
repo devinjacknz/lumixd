@@ -17,13 +17,20 @@ from src.data.ohlcv_collector import collect_all_tokens
 from src.agents.focus_agent import MODEL_TYPE, MODEL_NAME
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
+import json
+from pathlib import Path
 from src.config import (
     USDC_SIZE,
     MAX_LOSS_PERCENTAGE,
     SLIPPAGE,
-    TRADING_INTERVAL,
-    MONITORED_TOKENS as FOCUS_TOKENS
+    TRADING_INTERVAL
 )
+
+# Load token list
+TOKEN_LIST_PATH = Path(__file__).parent.parent / "data" / "token_list.json"
+with open(TOKEN_LIST_PATH) as f:
+    token_data = json.load(f)
+    FOCUS_TOKENS = [token["address"] for token in token_data["tokens"]]
 from src.nice_funcs import (
     market_buy,
     market_sell,
