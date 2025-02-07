@@ -44,8 +44,7 @@ class JupiterClient:
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250,
-                "platformFeeBps": 0
+                "slippageBps": 250
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
@@ -65,11 +64,7 @@ class JupiterClient:
                 "quoteResponse": quote_response,
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
-                "useSharedAccounts": True,
-                "computeUnitPriceMicroLamports": 50000,
-                "asLegacyTransaction": True,
-                "useTokenLedger": True,
-                "minContextSlot": quote_response.get("contextSlot")
+                "computeUnitPriceMicroLamports": 50000
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
@@ -119,8 +114,7 @@ class JupiterClient:
                             "encoding": "base64",
                             "maxRetries": 3,
                             "skipPreflight": True,
-                            "preflightCommitment": "finalized",
-                            "minContextSlot": quote_response.get("contextSlot")
+                            "preflightCommitment": "finalized"
                         }
                     ]
                 }
