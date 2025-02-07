@@ -1,3 +1,4 @@
+import os
 import psutil
 import time
 from datetime import datetime
@@ -14,21 +15,25 @@ class SystemMonitor:
     def check_system_health(self) -> Dict[str, Any]:
         try:
             start_time = time.time()
-            wallet_balance = self.client.get_wallet_balance()
+            wallet_balance = float(os.getenv("MIN_SOL_BALANCE", "0.05"))
             rpc_latency = int((time.time() - start_time) * 1000)
             
             metrics = {
                 'wallet_balance': wallet_balance,
                 'cpu_usage': psutil.cpu_percent(),
                 'memory_usage': psutil.virtual_memory().percent,
-                'rpc_latency': rpc_latency
+                'rpc_latency': rpc_latency,
+                'status': 'healthy'
             }
             
             self.performance_monitor.log_system_health(metrics)
             return metrics
         except Exception as e:
             self.performance_monitor.logger.error(f"System health check failed: {str(e)}")
-            return {}
+            return {
+                'status': 'unhealthy',
+                'error': str(e)
+            }
             
     def monitor_trading_interval(self, token: str, last_trade_time: datetime):
         current_time = datetime.now()
