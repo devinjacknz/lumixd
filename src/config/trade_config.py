@@ -1,0 +1,10 @@
+from typing import Dict
+
+TRADE_CONFIG: Dict[str, any] = {
+    "AI16Z_TOKEN": "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC",
+    "SOL_TOKEN": "So11111111111111111111111111111111111111112",
+    "TRADE_AMOUNT_SOL": 0.001,
+    "MAX_RETRIES": 3,
+    "RETRY_DELAY": 5,  # seconds
+    "SLIPPAGE_BPS": 250,  # 2.5%
+}
