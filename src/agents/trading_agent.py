@@ -16,6 +16,17 @@ from src import nice_funcs as n
 from src.data.ohlcv_collector import collect_all_tokens
 from src.agents.focus_agent import MODEL_TYPE, MODEL_NAME
 from src.models import ModelFactory
+from src.data.jupiter_client import JupiterClient
+from src.config import (
+    USDC_SIZE,
+    MAX_LOSS_PERCENTAGE,
+    SLIPPAGE
+)
+from src.nice_funcs import (
+    market_buy,
+    market_sell,
+    fetch_wallet_holdings_og
+)
 
 # Load environment variables
 load_dotenv()
@@ -63,10 +74,36 @@ class TradingAgent:
             default_analysis['reason'] = f'Error: {e}'
             return default_analysis
             
-    def analyze_market_data(self, token_data):
-        """Analyze market data for trading opportunities"""
+    def calculate_signal_strength(self, strategy_signal: float, sentiment_score: float, volatility: float) -> float:
+        """Calculate composite signal strength using multi-factor model"""
+        return (0.6 * strategy_signal + 0.3 * sentiment_score + 0.1 * (1 - volatility))
+        
+    def calculate_position_size(self, token_data: dict) -> float:
+        """Calculate dynamic position size based on volatility and risk"""
+        try:
+            volatility = token_data.get('volatility', 0.2)  # Default 20% volatility
+            portfolio_value = float(token_data.get('portfolio_value', 0))
+            
+            # Dynamic position sizing based on volatility
+            position_size = min(
+                USDC_SIZE * (1 - volatility),  # Reduce size in high volatility
+                portfolio_value * self.max_position_size
+            )
+            
+            return max(position_size, 0)  # Ensure non-negative
+        except Exception as e:
+            print(f"Error calculating position size: {e}")
+            return 0
+            
+    def analyze_market_data(self, token_data: dict) -> dict:
+        """Analyze market data for trading opportunities using multi-factor model"""
         if not token_data or not isinstance(token_data, dict):
-            return None
+            return {
+                'action': 'hold',
+                'confidence': 0.0,
+                'reason': 'Invalid token data',
+                'metadata': {}
+            }
             
         try:
             context = f"""
@@ -76,20 +113,132 @@ class TradingAgent:
             Market Cap: {token_data.get('market_cap')}
             """
             
-            if self.model:
-                response = self.model.generate_response(
-                    system_prompt="You are the Trading Analysis AI. Analyze market data.",
-                    user_content=context,
-                    temperature=0.7
+            if not self.model:
+                return {
+                    'action': 'hold',
+                    'confidence': 0.0,
+                    'reason': 'Model not initialized',
+                    'metadata': {}
+                }
+                
+            # Get AI analysis
+            response = self.model.generate_response(
+                system_prompt="You are the Trading Analysis AI. Analyze market data.",
+                user_content=context,
+                temperature=0.7
+            )
+            analysis = self._parse_analysis(response)
+            
+            if analysis:
+                # Calculate composite signal
+                strategy_signal = float(analysis.get('confidence', 0))
+                sentiment_score = float(token_data.get('sentiment_score', 0))
+                volatility = float(token_data.get('volatility', 0.2))
+                
+                signal_strength = self.calculate_signal_strength(
+                    strategy_signal,
+                    sentiment_score,
+                    volatility
                 )
-                return self._parse_analysis(response)
-            else:
-                print("Model not initialized")
-                return None
+                
+                # Execute trade if signal is strong enough
+                if signal_strength > 0.7 and analysis.get('action') != 'hold':
+                    position_size = self.calculate_position_size(token_data)
+                    if position_size > 0:
+                        self.execute_trade(
+                            token=str(token_data.get('symbol')),
+                            direction=analysis.get('action', 'NEUTRAL').upper(),
+                            amount=position_size
+                        )
+                        
+                analysis['signal_strength'] = signal_strength
+                return analysis
+                
+            return {
+                'action': 'hold',
+                'confidence': 0.0,
+                'reason': 'Analysis failed',
+                'metadata': {}
+            }
                 
         except Exception as e:
             print(f"Error analyzing market data: {e}")
-            return None
+            return {
+                'action': 'hold',
+                'confidence': 0.0,
+                'reason': f'Error: {str(e)}',
+                'metadata': {}
+            }
+            
+    def execute_trade(self, token: str | None, direction: str, amount: float) -> bool:
+        """Execute trade based on signal"""
+        try:
+            if not token or not self._check_risk_limits():
+                return False
+                
+            jupiter = JupiterClient()
+            jupiter.slippage_bps = int(self.slippage * 100)
+            
+            if direction == 'BUY':
+                success = market_buy(str(token), amount, int(self.slippage * 100))
+            elif direction == 'SELL':
+                success = market_sell(str(token), amount, int(self.slippage * 100))
+            else:
+                return False
+                
+            return success
+        except Exception as e:
+            print(f"Error executing trade: {e}")
+            return False
+            
+    def _check_risk_limits(self) -> bool:
+        """Check risk management limits with circuit breakers"""
+        try:
+            positions = fetch_wallet_holdings_og(os.getenv("WALLET_ADDRESS", ""))
+            if positions.empty:
+                return True
+                
+            total_value = positions['USD Value'].sum()
+            
+            # Check individual position sizes
+            for _, pos in positions.iterrows():
+                size_percentage = (pos['USD Value'] / total_value) * 100
+                
+                # Circuit breaker 1: Position size limit
+                if size_percentage > self.max_position_size:
+                    print(f"🚨 Circuit breaker: Position size {size_percentage:.2f}% exceeds limit {self.max_position_size}%")
+                    return False
+                    
+                # Circuit breaker 2: Loss limit per position
+                if pos.get('unrealized_pnl_percentage', 0) < -MAX_LOSS_PERCENTAGE:
+                    print(f"🚨 Circuit breaker: Loss {pos.get('unrealized_pnl_percentage', 0):.2f}% exceeds limit {MAX_LOSS_PERCENTAGE}%")
+                    return False
+                    
+            # Circuit breaker 3: Portfolio volatility
+            portfolio_volatility = self._calculate_portfolio_volatility(positions)
+            if portfolio_volatility > 0.3:  # 30% volatility threshold
+                print(f"🚨 Circuit breaker: Portfolio volatility {portfolio_volatility:.2f} exceeds threshold")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error checking risk limits: {e}")
+            return False
+            
+    def _calculate_portfolio_volatility(self, positions: pd.DataFrame) -> float:
+        """Calculate portfolio volatility"""
+        try:
+            # Simple volatility calculation based on position values
+            if positions.empty:
+                return 0
+                
+            values = positions['USD Value']
+            return float(values.std() / values.mean()) if values.mean() > 0 else 0
+            
+        except Exception as e:
+            print(f"Error calculating portfolio volatility: {e}")
+            return 1.0  # Return high volatility on error
 
     def run(self):
         """Main processing loop"""
