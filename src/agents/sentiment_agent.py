@@ -128,8 +128,8 @@ class SentimentAgent(BaseAgent):
             cprint(f"❌ Error loading sentiment model: {str(e)}", "red")
             raise
 
-    def analyze_sentiment(self, texts):
-        """Analyze sentiment of a batch of texts"""
+    def analyze_sentiment(self, texts, source: str = 'twitter', elapsed_minutes: float = 0.0):
+        """Analyze sentiment of a batch of texts with time decay"""
         if not texts:
             return 0.0
             
@@ -157,10 +157,21 @@ class SentimentAgent(BaseAgent):
                     predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
                     sentiments.extend(predictions.tolist())
                     
-            return self._calculate_sentiment_scores(sentiments)
+            raw_score = float(self._calculate_sentiment_scores(sentiments))
+            return self.apply_sentiment_decay(raw_score, elapsed_minutes, source)
         except Exception as e:
             cprint(f"❌ Error analyzing sentiment: {str(e)}", "red")
             return 0.0  # Return neutral sentiment on error
+        
+    def apply_sentiment_decay(self, raw_score: float, elapsed_minutes: float, source: str) -> float:
+        """Apply time-based decay to sentiment scores"""
+        decay_rates = {
+            'twitter': 0.2,
+            'reddit': 0.15,
+            'news': 0.1
+        }
+        decay_rate = decay_rates.get(source, 0.2)  # Default to Twitter rate
+        return raw_score * np.exp(-decay_rate * elapsed_minutes)
         
     def _calculate_sentiment_scores(self, sentiments):
         """Convert sentiment predictions to scores"""
