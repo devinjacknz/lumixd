@@ -129,7 +129,7 @@ class SentimentAgent(BaseAgent):
             raise
 
     def analyze_sentiment(self, texts, source: str = 'twitter', elapsed_minutes: float = 0.0):
-        """Analyze sentiment of a batch of texts with time decay"""
+        """Multi-model sentiment analysis with time decay"""
         if not texts:
             return 0.0
             
@@ -145,23 +145,45 @@ class SentimentAgent(BaseAgent):
                 cprint("⚠️ Model initialization failed, returning neutral sentiment", "yellow")
                 return 0.0
                 
-            sentiments = []
-            batch_size = 8  # Process in small batches to avoid memory issues
+            from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+            vader = SentimentIntensityAnalyzer()
+            
+            batch_size = 32
+            bert_sentiments = []
+            vader_sentiments = []
             
             for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i:i + batch_size]
-                inputs = self.tokenizer(batch_texts, padding=True, truncation=True, max_length=128, return_tensors="pt")
+                batch = texts[i:i + batch_size]
+                
+                # VADER Analysis
+                for text in batch:
+                    scores = vader.polarity_scores(text)
+                    vader_sentiments.append(scores['compound'])
+                
+                # BERT Analysis
+                inputs = self.tokenizer(
+                    batch,
+                    padding=True,
+                    truncation=True,
+                    max_length=128,
+                    return_tensors="pt"
+                )
                 
                 with torch.no_grad():
                     outputs = self.model(**inputs)
                     predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
-                    sentiments.extend(predictions.tolist())
-                    
-            raw_score = float(self._calculate_sentiment_scores(sentiments))
+                    bert_sentiments.extend(predictions.tolist())
+            
+            # Combine model predictions (70% BERT, 30% VADER)
+            bert_score = float(self._calculate_sentiment_scores(bert_sentiments))
+            vader_score = float(sum(vader_sentiments) / len(vader_sentiments))
+            raw_score = (0.7 * bert_score) + (0.3 * vader_score)
+            
             return self.apply_sentiment_decay(raw_score, elapsed_minutes, source)
+            
         except Exception as e:
             cprint(f"❌ Error analyzing sentiment: {str(e)}", "red")
-            return 0.0  # Return neutral sentiment on error
+            return 0.0
         
     def apply_sentiment_decay(self, raw_score: float, elapsed_minutes: float, source: str) -> float:
         """Apply time-based decay to sentiment scores"""
