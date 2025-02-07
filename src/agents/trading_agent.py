@@ -241,7 +241,19 @@ class TradingAgent:
     def execute_trade(self, token: str | None, direction: str, amount: float) -> bool:
         """Execute trade based on signal"""
         try:
-            if not token or not self._check_risk_limits():
+            if not token:
+                cprint("❌ Trade failed: No token specified", "red")
+                return False
+                
+            # Check balances first
+            balances_ok, reason = self.check_balances()
+            if not balances_ok:
+                cprint(f"❌ Trade failed: {reason}", "red")
+                return False
+                
+            # Check risk limits
+            if not self._check_risk_limits():
+                cprint("❌ Trade failed: Risk limits exceeded", "red")
                 return False
                 
             jupiter = JupiterClient()
