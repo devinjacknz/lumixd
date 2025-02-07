@@ -20,8 +20,18 @@ import solders
 from dotenv import load_dotenv
 import shutil
 import atexit
-from src.data.helius_client import HeliusClient
+import math
+from solders.keypair import Keypair
+from src.data.chainstack_client import ChainStackClient
 from src.data.jupiter_client import JupiterClient
+from src.config import (
+    USDC_ADDRESS,
+    SLIPPAGE,
+    USDC_SIZE,
+    sell_at_multiple,
+    stop_loss_perctentage as STOP_LOSS_PERCENTAGE,
+    WALLET_ADDRESS
+)
 
 # Constants
 MIN_TRADES_LAST_HOUR = 100  # Minimum trades required in last hour
@@ -63,9 +73,9 @@ def find_urls(string):
 
 # UPDATED TO RMEOVE THE OTHER ONE so now we can just use this filter instead of filtering twice
 def token_overview(address):
-    """Get token overview using Helius API"""
+    """Get token overview using Chainstack RPC"""
     try:
-        client = HeliusClient()
+        client = ChainStackClient()
         
         # Get token metadata and supply info
         metadata = client.get_token_metadata(address)
@@ -91,9 +101,9 @@ def token_overview(address):
 
 
 def token_security_info(address):
-    """Get token security info using Helius API"""
+    """Get token security info using Chainstack RPC"""
     try:
-        client = HeliusClient()
+        client = ChainStackClient()
         
         # Get creation info
         signatures = client.get_signatures_for_address(address, limit=1)
@@ -131,9 +141,9 @@ def token_security_info(address):
         return None
 
 def token_creation_info(address):
-    """Get token creation info using Helius API"""
+    """Get token creation info using Chainstack RPC"""
     try:
-        client = HeliusClient()
+        client = ChainStackClient()
         metadata = client.get_token_metadata(address)
         
         creation_data = {
@@ -148,7 +158,7 @@ def token_creation_info(address):
         cprint(f"✨ Error getting token creation info: {str(e)}", "red")
         return None
 
-def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
+def market_buy(token: str, amount: float, slippage_bps: int = SLIPPAGE_BPS) -> bool:
     """Execute a market buy order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -163,7 +173,7 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
             input_mint=USDC_ADDRESS,
             output_mint=token,
             amount=int(amount),
-            slippage_bps=slippage
+            slippage_bps=slippage_bps
         )
         if not quote:
             return False
@@ -179,7 +189,7 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
         cprint(f"❌ Market buy failed: {str(e)}", "red")
         return False
 
-def market_sell(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
+def market_sell(token: str, amount: float, slippage_bps: int = SLIPPAGE_BPS) -> bool:
     """Execute a market sell order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -194,7 +204,7 @@ def market_sell(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
             input_mint=token,
             output_mint=USDC_ADDRESS,
             amount=int(amount),
-            slippage_bps=slippage
+            slippage_bps=slippage_bps
         )
         if not quote:
             return False
@@ -215,7 +225,7 @@ def round_down(value: float, decimals: int) -> float:
     factor = 10 ** decimals
     return math.floor(value * factor) / factor
 
-def get_time_range(days_back: int) -> tuple[int, int]:
+def get_time_range(days_back: int = 3) -> tuple[int, int]:
     """Get time range with specified days lookback"""
     now = datetime.now()
     earlier = now - timedelta(days=days_back)
@@ -223,22 +233,22 @@ def get_time_range(days_back: int) -> tuple[int, int]:
     time_from = int(earlier.timestamp())
     return time_from, time_to
 
-def get_data(address: str, days_back_4_data: int, timeframe: str) -> pd.DataFrame:
-    """Get market data using Helius API"""
+def get_data(address: str, days_back: int = 3, timeframe: str = '1H') -> pd.DataFrame:
+    """Get market data using Chainstack RPC"""
     try:
-        client = HeliusClient()
-        return client.get_token_data(address, days_back_4_data, timeframe)
+        client = ChainStackClient()
+        return client.get_token_data(address, days_back, timeframe)
     except Exception as e:
         cprint(f"❌ Error getting market data: {str(e)}", "red")
         return pd.DataFrame()
 
 def fetch_wallet_holdings_og(wallet_address: str) -> pd.DataFrame:
-    """Fetch token holdings for a wallet using Helius API"""
+    """Fetch token holdings for a wallet using Chainstack RPC"""
     df = pd.DataFrame(columns=['Mint Address', 'Amount', 'USD Value'])
     try:
         # Get wallet SOL balance
-        helius_client = HeliusClient()
-        sol_balance = helius_client.get_wallet_balance(wallet_address)
+        client = ChainStackClient()
+        sol_balance = client.get_wallet_balance(wallet_address)
         if sol_balance > 0:
             df = pd.DataFrame([{
                 'Mint Address': 'So11111111111111111111111111111111111111112',  # Native SOL mint
@@ -248,8 +258,8 @@ def fetch_wallet_holdings_og(wallet_address: str) -> pd.DataFrame:
             
         # Get token accounts
         response = requests.post(
-            f"{helius_client.base_url}",
-            headers=helius_client.headers,
+            os.getenv("RPC_ENDPOINT"),
+            headers={"Content-Type": "application/json"},
             json={
                 "jsonrpc": "2.0",
                 "id": "get-token-accounts",
@@ -275,7 +285,8 @@ def fetch_wallet_holdings_og(wallet_address: str) -> pd.DataFrame:
                     amount = float(token_info.get("tokenAmount", {}).get("uiAmount", 0))
                     
                     # Get token price
-                    price = float(helius_client.get_token_price(mint) or 0)
+                    client = ChainStackClient()
+                    price = float(client.get_token_price(mint) or 0)
                     usd_value = amount * price
                     
                     if usd_value > 0.05:  # Only include tokens worth more than $0.05
@@ -316,30 +327,25 @@ def fetch_wallet_token_single(address, token_mint_address):
     return df
 
 
-def token_price(address):
-    """Get token price using Helius API"""
+def token_price(address: str) -> float:
+    """Get token price using Chainstack RPC"""
     try:
-        client = HeliusClient()
-        return client.get_token_price(address)
+        client = ChainStackClient()
+        price = client.get_token_price(address)
+        return float(price) if price is not None else 0.0
     except Exception as e:
         cprint(f"❌ Error getting token price: {str(e)}", "red")
-        return None
+        return 0.0
     
 # Example: price = token_price('token_address')
 
 
-def get_position(token_mint_address):
+def get_position(token_mint_address: str, wallet_address: str = WALLET_ADDRESS) -> float:
     """
-    Fetches the balance of a specific token given its mint address from a DataFrame.
-
-    Parameters:
-    - dataframe: A pandas DataFrame containing token balances with columns ['Mint Address', 'Amount'].
-    - token_mint_address: The mint address of the token to find the balance for.
-
-    Returns:
-    - The balance of the specified token if found, otherwise a message indicating the token is not in the wallet.
+    Fetches the balance of a specific token for a given wallet address.
+    Returns the token balance or 0 if not found.
     """
-    dataframe = fetch_wallet_token_single(address, token_mint_address)
+    dataframe = fetch_wallet_token_single(wallet_address, token_mint_address)
 
     #dataframe = pd.read_csv('data/token_per_addy.csv')
 
@@ -372,8 +378,10 @@ def get_decimals(token_mint_address):
     import requests
     import base64
     import json
-    # Solana Mainnet RPC endpoint
-    url = "https://api.mainnet-beta.solana.com/"
+    # Get RPC endpoint from environment
+    url = os.getenv("RPC_ENDPOINT")
+    if not url:
+        raise ValueError("RPC_ENDPOINT environment variable is required")
     headers = {"Content-Type": "application/json"}
 
     # Request payload to fetch account information
@@ -399,9 +407,8 @@ def get_decimals(token_mint_address):
 
     return decimals
 
-def pnl_close(token_mint_address):
-
-    ''' this will check to see if price is > sell 1, sell 2, sell 3 and sell accordingly '''
+def pnl_close(token_mint_address: str, wallet_address: str = WALLET_ADDRESS):
+    """Check if price meets profit/loss targets and execute trades accordingly"""
 
     print(f'checking pnl close to see if its time to exit for {token_mint_address[:4]}...')
     # check solana balance
@@ -491,11 +498,11 @@ def pnl_close(token_mint_address):
                 cprint('order error.. trying again', 'white', 'on_red')
                 # time.sleep(7)
 
-            balance = get_position(token_mint_address)
-            price = token_price(token_mint_address)
-            usd_value = balance * price
+            balance = float(get_position(token_mint_address, wallet_address) or 0)
+            price = float(token_price(token_mint_address) or 0)
+            usd_value = balance * price if balance and price else 0
             tp = sell_at_multiple * USDC_SIZE
-            sl = ((1+stop_loss_percentage) * USDC_SIZE)
+            sl = ((1 + STOP_LOSS_PERCENTAGE) * USDC_SIZE)
             sell_size = balance
 
             sell_size = int(sell_size * 10 **decimals)
@@ -552,7 +559,7 @@ def chunk_kill(token_mint_address, max_usd_order_size, slippage):
             
             # Check remaining position
             time.sleep(5)  # Wait for blockchain to update
-            df = fetch_wallet_token_single(address, token_mint_address)
+            df = fetch_wallet_token_single(wallet_address, token_mint_address)
             if df.empty:
                 cprint("\n✨ Position successfully closed!", "white", "on_green")
                 return
@@ -689,9 +696,9 @@ def supply_demand_zones(token_address, timeframe, limit):
 
     sd_df = pd.DataFrame()
 
-    time_from, time_to = get_time_range()
+    time_from, time_to = get_time_range(LOOKBACK_DAYS)
 
-    df = get_data(token_address, time_from, time_to, timeframe)
+    df = get_data(token_address, days_back=LOOKBACK_DAYS, timeframe=timeframe)
 
     # only keep the data for as many bars as limit says
     df = df[-limit:]
