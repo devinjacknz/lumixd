@@ -44,7 +44,8 @@ class JupiterClient:
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250
+                "slippageBps": 250,
+                "onlyDirectRoutes": True
             }
             response = requests.get(url, params=params)
             response.raise_for_status()
@@ -61,8 +62,11 @@ class JupiterClient:
                 "quoteResponse": quote_response,
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
-                "computeUnitPriceMicroLamports": 10000,
-                "asLegacyTransaction": True
+                "useSharedAccounts": True,
+                "computeUnitPriceMicroLamports": 50000,
+                "asLegacyTransaction": True,
+                "useTokenLedger": True,
+                "minContextSlot": quote_response.get("contextSlot")
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
@@ -81,7 +85,7 @@ class JupiterClient:
                     "jsonrpc": "2.0",
                     "id": "get-blockhash",
                     "method": "getLatestBlockhash",
-                    "params": []
+                    "params": [{"commitment": "finalized"}]
                 }
             )
             response.raise_for_status()
@@ -108,7 +112,13 @@ class JupiterClient:
                     "method": "sendTransaction",
                     "params": [
                         signed_tx,
-                        {"encoding": "base64", "maxRetries": 3}
+                        {
+                            "encoding": "base64",
+                            "maxRetries": 3,
+                            "skipPreflight": True,
+                            "preflightCommitment": "finalized",
+                            "minContextSlot": quote_response.get("contextSlot")
+                        }
                     ]
                 }
             )
@@ -224,7 +234,12 @@ class JupiterClient:
                     "method": "sendTransaction",
                     "params": [
                         base64.b64encode(bytes(tx)).decode('utf-8'),
-                        {"encoding": "base64", "maxRetries": 3}
+                        {
+                            "encoding": "base64",
+                            "maxRetries": 3,
+                            "skipPreflight": True,
+                            "preflightCommitment": "finalized"
+                        }
                     ]
                 }
             )
@@ -259,7 +274,7 @@ class JupiterClient:
                         "jsonrpc": "2.0",
                         "id": "get-tx-status",
                         "method": "getSignatureStatuses",
-                        "params": [[signature]]
+                        "params": [[signature], {"searchTransactionHistory": True}]
                     }
                 )
                 response.raise_for_status()
