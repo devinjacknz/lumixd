@@ -16,7 +16,7 @@ VERIFICATION_DURATION_HOURS = 2
 
 def execute_trade(client: JupiterClient, input_token: str, output_token: str, amount_lamports: int) -> bool:
     try:
-        # Get quote with simpler route to reduce transaction size
+        # Get quote with optimized parameters
         quote = client.get_quote(
             input_token, 
             output_token, 
@@ -24,6 +24,21 @@ def execute_trade(client: JupiterClient, input_token: str, output_token: str, am
             use_shared_accounts=True,
             force_simpler_route=True
         )
+        if not quote:
+            cprint("❌ Failed to get quote", "red")
+            return False
+            
+        # Check if route is too complex
+        route_plan = quote.get("routePlan", [])
+        if len(route_plan) > 2:
+            cprint("⚠️ Route too complex, retrying with simpler route", "yellow")
+            quote = client.get_quote(
+                input_token,
+                output_token,
+                str(amount_lamports),
+                use_shared_accounts=True,
+                force_simpler_route=True
+            )
         if not quote:
             return False
             
