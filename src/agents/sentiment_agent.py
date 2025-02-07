@@ -315,8 +315,8 @@ class SentimentAgent(BaseAgent):
         if not tweets:
             return
             
-        # Extract text from tweets
-        texts = [tweet.text for tweet in tweets]
+        # Extract and clean text from tweets
+        texts = [self.clean_tweet(tweet.text) for tweet in tweets]
         
         # Get sentiment score
         sentiment_score = self.analyze_sentiment(texts)
@@ -403,24 +403,34 @@ class SentimentAgent(BaseAgent):
             cprint(f"❌ Error getting tweets: {str(e)}", "red")
             return []
 
+    def clean_tweet(self, text: str) -> str:
+        """Clean tweet text"""
+        import re
+        text = re.sub(r'http\S+', '', text)  # Remove URLs
+        text = re.sub(r'@\w+', '', text)     # Remove @mentions
+        text = re.sub(r'#\w+', '', text)     # Remove hashtags
+        text = re.sub(r'\s+', ' ', text)     # Normalize whitespace
+        return text.strip()
+
     def save_tweets(self, tweets, token):
-        """Save tweets to CSV file using pandas, appending new ones and avoiding duplicates"""
+        """Save cleaned tweets to CSV"""
         filename = f"{DATA_FOLDER}/{token}_tweets.csv"
         
-        # Prepare new tweets data
         new_tweets_data = []
         for tweet in tweets:
             if not hasattr(tweet, 'id'):
                 continue
                 
             try:
+                cleaned_text = self.clean_tweet(tweet.text)
                 tweet_data = {
                     "collection_time": datetime.now().isoformat(),
                     "tweet_id": str(tweet.id),
                     "created_at": tweet.created_at,
                     "user_name": tweet.user.name,
                     "user_id": str(tweet.user.id),
-                    "text": tweet.text,
+                    "text": cleaned_text,
+                    "raw_text": tweet.text,
                     "retweet_count": tweet.retweet_count,
                     "favorite_count": tweet.favorite_count,
                     "reply_count": tweet.reply_count,
