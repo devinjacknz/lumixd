@@ -44,7 +44,9 @@ class JupiterClient:
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250
+                "slippageBps": 250,
+                "maxAccounts": 10,
+                "onlyDirectRoutes": True
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
@@ -65,7 +67,10 @@ class JupiterClient:
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
                 "computeUnitPriceMicroLamports": 1000,
-                "asLegacyTransaction": True
+                "asLegacyTransaction": True,
+                "maxAccounts": 10,
+                "useSharedAccounts": True,
+                "useTokenLedger": False
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
@@ -115,7 +120,8 @@ class JupiterClient:
                             "encoding": "base64",
                             "maxRetries": 3,
                             "skipPreflight": True,
-                            "preflightCommitment": "finalized"
+                            "preflightCommitment": "finalized",
+                            "minContextSlot": quote_response.get("contextSlot")
                         }
                     ]
                 }
@@ -258,7 +264,7 @@ class JupiterClient:
         except Exception as e:
             cprint(f"❌ Failed to log transaction: {str(e)}", "red")
 
-    def monitor_transaction(self, signature: str, max_retries: int = 5) -> bool:
+    def monitor_transaction(self, signature: str, max_retries: int = 10) -> bool:
         try:
             retry_count = 0
             delay = 1.0
@@ -290,7 +296,7 @@ class JupiterClient:
                 retry_count += 1
                 if retry_count < max_retries:
                     time.sleep(delay)
-                    delay *= 2
+                    delay *= 1.5
                 
             cprint(f"❌ Transaction {signature[:8]}... timed out after {max_retries} retries", "red")
             return False
