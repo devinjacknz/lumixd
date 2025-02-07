@@ -463,7 +463,7 @@ class SentimentAgent(BaseAgent):
             if history_df.empty:
                 return datetime.min
                 
-            history_df['timestamp'] = pd.to_datetime(history_df['timestamp'])
+            history_df['timestamp'] = pd.to_datetime(history_df['timestamp'], format='ISO8601')
             return history_df['timestamp'].max()
         except Exception as e:
             cprint(f"Error getting sentiment time: {e}", "red")

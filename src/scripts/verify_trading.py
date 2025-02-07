@@ -18,26 +18,51 @@ def get_latest_sentiment_time() -> datetime:
 
 def monitor_trading_metrics():
     """Monitor key trading metrics"""
+    retry_count = 0
+    max_retries = 3
+    
     try:
         while True:
-            # Check API latency
-            start_time = time.time()
-            response = requests.get(os.getenv('RPC_ENDPOINT'))
-            latency = (time.time() - start_time) * 1000
-            
-            if latency > 150:
-                cprint(f"⚠️ High API latency: {latency:.2f}ms", "yellow")
+            try:
+                # Check API latency
+                start_time = time.time()
+                endpoint = os.getenv('RPC_ENDPOINT')
+                if not endpoint:
+                    cprint("⚠️ RPC_ENDPOINT not set", "yellow")
+                    time.sleep(10)
+                    continue
+                    
+                response = requests.get(endpoint, timeout=5)  # 5 second timeout
+                latency = (time.time() - start_time) * 1000
                 
-            # Check sentiment data freshness
-            last_sentiment = get_latest_sentiment_time()
-            if (datetime.now() - last_sentiment).seconds > 300:
-                cprint("⚠️ Sentiment data stale (>5 minutes old)", "yellow")
+                if latency > 150:
+                    cprint(f"⚠️ High API latency: {latency:.2f}ms", "yellow")
+                    
+                # Reset retry count on success
+                retry_count = 0
+                
+                # Check sentiment data freshness
+                last_sentiment = get_latest_sentiment_time()
+                if (datetime.now() - last_sentiment).seconds > 300:
+                    cprint("⚠️ Sentiment data stale (>5 minutes old)", "yellow")
+                    
+            except requests.exceptions.RequestException as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    cprint(f"❌ API failed after {max_retries} retries", "red")
+                    retry_count = 0  # Reset for next attempt
+                else:
+                    cprint(f"⚠️ API error (attempt {retry_count}/{max_retries})", "yellow")
+                    
+            except Exception as e:
+                cprint(f"❌ Error in monitoring loop: {str(e)}", "red")
                 
             time.sleep(10)  # Check every 10 seconds
+            
     except KeyboardInterrupt:
         cprint("Monitoring stopped by user", "yellow")
     except Exception as e:
-        cprint(f"❌ Error in monitoring: {str(e)}", "red")
+        cprint(f"❌ Fatal error in monitoring: {str(e)}", "red")
 
 def verify_trading(duration_hours=2, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"):
     start_time = datetime.now()
