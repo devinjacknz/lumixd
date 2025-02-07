@@ -26,12 +26,11 @@ class JupiterClient:
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests
         self.rpc_url = os.getenv("RPC_ENDPOINT")
-        self.sol_token = "So11111111111111111111111111111111111111111"
+        self.sol_token = "So11111111111111111111111111111111111111112"
         if not self.rpc_url:
             raise ValueError("RPC_ENDPOINT environment variable is required")
         
     def _rate_limit(self):
-        """Implement rate limiting"""
         current_time = time.time()
         time_since_last = current_time - self.last_request_time
         if time_since_last < self.min_request_interval:
@@ -39,11 +38,9 @@ class JupiterClient:
         self.last_request_time = time.time()
         
     def get_quote(self, input_mint: str, output_mint: str, amount: str) -> Optional[Dict]:
-        """Get quote for token swap"""
         try:
             self._rate_limit()
             url = f"{self.base_url}/quote"
-            
             params = {
                 "inputMint": input_mint,
                 "outputMint": output_mint,
@@ -58,7 +55,6 @@ class JupiterClient:
             return None
             
     def execute_swap(self, quote_response: Dict, wallet_pubkey: str) -> Optional[str]:
-        """Execute swap transaction using Jupiter API"""
         try:
             self._rate_limit()
             url = f"{self.base_url}/swap"
@@ -73,12 +69,10 @@ class JupiterClient:
             response.raise_for_status()
             data = response.json()
             
-            # Get unsigned transaction
             unsigned_tx = data.get("swapTransaction")
             if not unsigned_tx:
                 return None
                 
-            # Get recent blockhash
             response = requests.post(
                 self.rpc_url,
                 headers=self.headers,
@@ -94,13 +88,11 @@ class JupiterClient:
             if not blockhash_data or "blockhash" not in blockhash_data:
                 return None
                 
-            # Sign and send transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             tx = Transaction.from_bytes(base64.b64decode(unsigned_tx))
             blockhash = Hash.from_string(blockhash_data["blockhash"])
             tx.sign([wallet_key], blockhash)
             
-            # Submit transaction
             response = requests.post(
                 self.rpc_url,
                 headers=self.headers,
@@ -109,7 +101,7 @@ class JupiterClient:
                     "id": "submit-tx",
                     "method": "sendTransaction",
                     "params": [
-                        tx.to_string(),
+                        base64.b64encode(tx.serialize()).decode('utf-8'),
                         {"encoding": "base64", "maxRetries": 3}
                     ]
                 }
@@ -118,7 +110,6 @@ class JupiterClient:
             data = response.json()
             signature = data.get("result")
             
-            # Monitor transaction
             if signature and self.monitor_transaction(signature):
                 return signature
             return None
@@ -128,7 +119,6 @@ class JupiterClient:
             return None
             
     def _create_ata_transaction(self, mint: str, owner: str, ata: str) -> Optional[str]:
-        """Create ATA transaction instruction"""
         try:
             response = requests.post(
                 self.rpc_url,
@@ -137,12 +127,11 @@ class JupiterClient:
                     "jsonrpc": "2.0",
                     "id": "create-ata-tx",
                     "method": "getMinimumBalanceForRentExemption",
-                    "params": [165]  # Size of token account
+                    "params": [165]
                 }
             )
             rent = response.json().get("result", 0)
             
-            # Create ATA instruction
             create_ata_ix = {
                 "programId": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
                 "keys": [
@@ -157,7 +146,6 @@ class JupiterClient:
                 "data": f"{rent}"
             }
             
-            # Build transaction
             response = requests.post(
                 self.rpc_url,
                 headers=self.headers,
@@ -178,7 +166,6 @@ class JupiterClient:
             return None
 
     def create_token_account(self, mint: str, owner: str) -> Optional[str]:
-        """Create Associated Token Account if missing"""
         try:
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             response = requests.post(
@@ -195,19 +182,17 @@ class JupiterClient:
             if not ata:
                 return None
                 
-            # Create ATA transaction
             create_tx = self._create_ata_transaction(mint, owner, ata)
             if not create_tx:
                 return None
                 
-            # Sign and send transaction
             tx = Transaction.from_bytes(bytes.fromhex(create_tx))
             tx.sign([wallet_key])
             self._log_transaction("Create ATA", {
                 "mint": mint,
                 "owner": owner,
                 "ata": ata,
-                "transaction": tx.to_string()
+                "transaction": base64.b64encode(tx.serialize()).decode('utf-8')
             })
             return self._send_and_confirm_transaction(tx)
         except Exception as e:
@@ -215,7 +200,6 @@ class JupiterClient:
             return None
 
     def _send_and_confirm_transaction(self, tx: Transaction) -> Optional[str]:
-        """Send and confirm transaction"""
         try:
             response = requests.post(
                 self.rpc_url,
@@ -225,7 +209,7 @@ class JupiterClient:
                     "id": "send-tx",
                     "method": "sendTransaction",
                     "params": [
-                        tx.to_string(),
+                        base64.b64encode(tx.serialize()).decode('utf-8'),
                         {"encoding": "base64", "maxRetries": 3}
                     ]
                 }
@@ -239,7 +223,6 @@ class JupiterClient:
             return None
 
     def _log_transaction(self, action: str, details: dict):
-        """Log transaction details for debugging"""
         try:
             log_file = f"logs/transactions_{datetime.now().strftime('%Y%m%d')}.log"
             with open(log_file, "a") as f:
@@ -249,15 +232,14 @@ class JupiterClient:
             cprint(f"❌ Failed to log transaction: {str(e)}", "red")
 
     def monitor_transaction(self, signature: str, max_retries: int = 5) -> bool:
-        """Monitor transaction status with exponential backoff"""
         try:
             retry_count = 0
-            delay = 1.0  # Initial delay in seconds
+            delay = 1.0
             
             while retry_count < max_retries:
                 self._rate_limit()
                 response = requests.post(
-                    self.base_url,
+                    self.rpc_url,
                     headers=self.headers,
                     json={
                         "jsonrpc": "2.0",
@@ -281,7 +263,7 @@ class JupiterClient:
                 retry_count += 1
                 if retry_count < max_retries:
                     time.sleep(delay)
-                    delay *= 2  # Exponential backoff
+                    delay *= 2
                 
             cprint(f"❌ Transaction {signature[:8]}... timed out after {max_retries} retries", "red")
             return False
