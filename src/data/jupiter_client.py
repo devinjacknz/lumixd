@@ -11,20 +11,18 @@ from solders.transaction import Transaction
 from solders.hash import Hash
 from dotenv import load_dotenv
 
-# Create logs directory
 os.makedirs("logs", exist_ok=True)
-
 load_dotenv()
 
 class JupiterClient:
     def __init__(self):
         self.base_url = "https://quote-api.jup.ag/v6"
         self.headers = {"Content-Type": "application/json"}
-        self.slippage_bps = 250  # 2.5% slippage
+        self.slippage_bps = 250
         self.max_retries = 3
-        self.retry_delay = 1000  # 1 second initial delay
+        self.retry_delay = 1000
         self.last_request_time = 0
-        self.min_request_interval = 1.0  # 1 second between requests
+        self.min_request_interval = 1.0
         self.rpc_url = os.getenv("RPC_ENDPOINT")
         self.sol_token = "So11111111111111111111111111111111111111112"
         if not self.rpc_url:
@@ -101,7 +99,7 @@ class JupiterClient:
                     "id": "submit-tx",
                     "method": "sendTransaction",
                     "params": [
-                        base64.b64encode(tx.serialize()).decode('utf-8'),
+                        base64.b64encode(bytes(tx)).decode('utf-8'),
                         {"encoding": "base64", "maxRetries": 3}
                     ]
                 }
@@ -192,7 +190,7 @@ class JupiterClient:
                 "mint": mint,
                 "owner": owner,
                 "ata": ata,
-                "transaction": base64.b64encode(tx.serialize()).decode('utf-8')
+                "transaction": base64.b64encode(bytes(tx)).decode('utf-8')
             })
             return self._send_and_confirm_transaction(tx)
         except Exception as e:
@@ -209,7 +207,7 @@ class JupiterClient:
                     "id": "send-tx",
                     "method": "sendTransaction",
                     "params": [
-                        base64.b64encode(tx.serialize()).decode('utf-8'),
+                        base64.b64encode(bytes(tx)).decode('utf-8'),
                         {"encoding": "base64", "maxRetries": 3}
                     ]
                 }
