@@ -28,6 +28,9 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
    - `RPC_ENDPOINT`: Chainstack RPC endpoint (https://solana-mainnet.core.chainstack.com/YOUR_KEY)
    - `SOLANA_PRIVATE_KEY`: Your Solana wallet private key (base58 format)
    - `DEEPSEEK_KEY`: Required for AI model
+   - `TWITTER_USERNAME`: Twitter account username for sentiment analysis
+   - `TWITTER_PASSWORD`: Twitter account password
+   - `TWITTER_EMAIL`: Twitter account email
 
 4. Install and configure Ollama:
    ```bash
@@ -69,7 +72,7 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
 ## Monitoring System 监控系统
 
 1. Transaction Verification 交易验证
-   - View transactions on Solscan: https://solscan.io/account/YOUR_WALLET_ADDRESS
+   - View transactions on Solscan: https://solscan.io/account/4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5
    - Check transaction status and fees
    - Verify Jupiter swaps execution
 
