@@ -36,6 +36,8 @@ MAX_RETRIES = 3  # Maximum retry attempts for failed transactions
 
 # Risk Management Settings
 MIN_SOL_BALANCE = 0.05  # Minimum SOL balance required for trading
+MIN_USDC_BALANCE = 1.0  # Minimum USDC balance required for trading
+CREATE_ATA_IF_MISSING = True  # Auto-create token accounts if missing
 CASH_PERCENTAGE = 30  # Minimum % to keep in SOL as safety buffer
 MAX_POSITION_PERCENTAGE = 20  # Maximum % allocation per position
 MAX_LOSS_PERCENTAGE = 5  # Maximum loss percentage per trade
