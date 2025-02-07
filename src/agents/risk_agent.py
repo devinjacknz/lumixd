@@ -59,16 +59,53 @@ class RiskAgent:
             default_analysis['reason'] = f'Error: {e}'
             return default_analysis
             
-    def analyze_risk(self, portfolio_data):
-        """Analyze portfolio risk"""
+    def check_circuit_breakers(self, trade_data: dict) -> tuple[bool, str]:
+        """Check multi-layer circuit breakers"""
+        try:
+            # Circuit breaker 1: Single trade loss
+            if trade_data.get('unrealized_loss_percentage', 0) > 2:
+                return False, "Single trade loss exceeds 2% - reducing position by 50%"
+                
+            # Circuit breaker 2: Market volatility
+            if trade_data.get('market_volatility', 0) > 0.3:
+                return False, "Market volatility exceeds 30% - halting trading"
+                
+            # Circuit breaker 3: Portfolio volatility
+            if trade_data.get('portfolio_volatility', 0) > 0.25:
+                return False, "Portfolio volatility high - reducing leverage to 50%"
+                
+            return True, ""
+        except Exception as e:
+            print(f"Error in circuit breakers: {e}")
+            return False, f"Circuit breaker error: {str(e)}"
+            
+    def analyze_risk(self, portfolio_data: dict) -> dict:
+        """Analyze portfolio risk with circuit breakers"""
         if not portfolio_data or not isinstance(portfolio_data, dict):
-            return None
+            return {
+                'risk_level': 'high',
+                'warnings': ['Invalid portfolio data'],
+                'actions': ['halt_trading'],
+                'reason': 'Invalid input data'
+            }
             
         try:
+            # Check circuit breakers first
+            circuit_ok, circuit_msg = self.check_circuit_breakers(portfolio_data)
+            if not circuit_ok:
+                return {
+                    'risk_level': 'high',
+                    'warnings': [circuit_msg],
+                    'actions': ['halt_trading'],
+                    'reason': 'Circuit breaker triggered'
+                }
+            
             context = f"""
             Portfolio Value: ${portfolio_data.get('total_value', 0):.2f}
             Current PnL: ${portfolio_data.get('pnl', 0):.2f}
             Position Sizes: {portfolio_data.get('positions', {})}
+            Market Volatility: {portfolio_data.get('market_volatility', 0):.2%}
+            Portfolio Volatility: {portfolio_data.get('portfolio_volatility', 0):.2%}
             """
             
             if self.model:
@@ -79,12 +116,21 @@ class RiskAgent:
                 )
                 return self._parse_analysis(response)
             else:
-                print("Model not initialized")
-                return None
+                return {
+                    'risk_level': 'high',
+                    'warnings': ['Model not initialized'],
+                    'actions': ['halt_trading'],
+                    'reason': 'Risk model unavailable'
+                }
                 
         except Exception as e:
             print(f"Error analyzing risk: {e}")
-            return None
+            return {
+                'risk_level': 'high',
+                'warnings': [str(e)],
+                'actions': ['halt_trading'],
+                'reason': f'Error: {str(e)}'
+            }
 
     def run(self):
         """Main monitoring loop"""
