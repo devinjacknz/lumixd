@@ -8,6 +8,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+from src.api.v1.middleware.rate_limit import RateLimitMiddleware
+
+app.add_middleware(RateLimitMiddleware, max_requests=5, window_seconds=1)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
