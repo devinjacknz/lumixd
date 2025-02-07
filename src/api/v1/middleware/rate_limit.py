@@ -1,15 +1,17 @@
 from fastapi import Request, HTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 import time
 from collections import defaultdict
 from typing import Dict, List
 
-class RateLimitMiddleware:
-    def __init__(self, max_requests: int = 5, window_seconds: int = 1):
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_requests: int = 5, window_seconds: int = 1):
+        super().__init__(app)
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests: Dict[str, List[float]] = defaultdict(list)
         
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):
         instance_id = request.path_params.get("instance_id")
         if not instance_id:
             return await call_next(request)
