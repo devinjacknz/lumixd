@@ -5,7 +5,7 @@ import time
 import os
 from termcolor import cprint
 from solders.keypair import Keypair
-from solana.rpc.types import TxOpts
+from solders.transaction import Transaction
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,7 +18,11 @@ class JupiterClient:
         self.max_retries = 3
         self.retry_delay = 1000  # 1 second initial delay
         self.last_request_time = 0
-        self.min_request_interval = 0.5  # 500ms between requests
+        self.min_request_interval = 1.0  # 1 second between requests (Chainstack Developer plan)
+        base_url = os.getenv("RPC_ENDPOINT")
+        if not base_url:
+            raise ValueError("RPC_ENDPOINT environment variable is required")
+        self.base_url = str(base_url)
         
     def _rate_limit(self):
         """Implement rate limiting"""
@@ -81,7 +85,7 @@ class JupiterClient:
             while retry_count < max_retries:
                 self._rate_limit()
                 response = requests.post(
-                    f"https://mainnet.helius-rpc.com/?api-key={os.getenv('HELIUS_API_KEY')}",
+                    self.base_url,
                     headers=self.headers,
                     json={
                         "jsonrpc": "2.0",

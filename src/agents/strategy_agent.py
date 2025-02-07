@@ -37,6 +37,37 @@ class StrategyAgent:
             print(f"  • {name.title()} Strategy")
         print("Strategy Agent initialized!")
 
+    def analyze_market_data(self, token_data: dict) -> dict:
+        """Analyze market data using loaded strategies"""
+        if not token_data or 'symbol' not in token_data:
+            return {'action': 'hold', 'reason': 'Invalid token data'}
+            
+        results = []
+        for strategy_name, strategy_file in self.strategies.items():
+            try:
+                context = f"""
+                Token: {token_data['symbol']}
+                Strategy: {strategy_name}
+                """
+                
+                if self.model:
+                    response = self.model.generate_response(
+                        system_prompt="You are the Strategy Analysis AI. Analyze token data.",
+                        user_content=context,
+                        temperature=0.7
+                    )
+                    results.append({
+                        'strategy': strategy_name,
+                        'analysis': response
+                    })
+            except Exception as e:
+                print(f"Error in {strategy_name} strategy: {e}")
+                
+        return {
+            'action': 'hold' if not results else 'analyze',
+            'strategies': results
+        }
+
     def run(self):
         """Main processing loop"""
         print("\nStrategy Agent starting...")
@@ -44,7 +75,7 @@ class StrategyAgent:
         
         try:
             while True:
-                time.sleep(0.1)
+                time.sleep(1)  # Rate limiting for Chainstack
                 
         except KeyboardInterrupt:
             print("\nStrategy Agent shutting down...")
