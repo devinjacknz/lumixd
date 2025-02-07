@@ -825,18 +825,17 @@ def breakout_entry(symbol, BREAKOUT_PRICE):
     pos = float(get_position(symbol) or 0)
     price = float(token_price(symbol) or 0)
     pos_usd = pos * price
-    size_needed = float(USDC_SIZE or 0) - pos_usd
+    size_needed = float(USDC_SIZE) - pos_usd
     if size_needed > max_usd_order_size: 
         chunk_size = max_usd_order_size
     else: 
         chunk_size = size_needed
 
     chunk_size = int(chunk_size * 10**6)
-    chunk_size = str(chunk_size)
 
     print(f'chunk_size: {chunk_size}')
 
-    if pos_usd > (.97 * float(USDC_SIZE or 0)):
+    if pos_usd > (.97 * float(USDC_SIZE)):
         print('position filled')
         time.sleep(10)
         return
@@ -845,12 +844,12 @@ def breakout_entry(symbol, BREAKOUT_PRICE):
     print(f'breakoutpurce: {BREAKOUT_PRICE}')
     
     breakout_price = float(BREAKOUT_PRICE or 0)
-    while pos_usd < (.97 * float(USDC_SIZE or 0)) and price > breakout_price:
+    while pos_usd < (.97 * float(USDC_SIZE)) and price > breakout_price:
         print(f'position: {pos:.2f} price: {price:.8f} pos_usd: ${pos_usd:.2f}')
 
         try:
             for i in range(orders_per_open):
-                market_buy(symbol, chunk_size, SLIPPAGE)
+                market_buy(symbol, float(chunk_size), SLIPPAGE)
                 cprint(f'chunk buy submitted of {symbol[:4]} sz: {chunk_size}', 'white', 'on_blue')
                 time.sleep(1)
 
@@ -859,20 +858,19 @@ def breakout_entry(symbol, BREAKOUT_PRICE):
             pos = float(get_position(symbol) or 0)
             price = float(token_price(symbol) or 0)
             pos_usd = pos * price
-            size_needed = float(USDC_SIZE or 0) - pos_usd
+            size_needed = float(USDC_SIZE) - pos_usd
             if size_needed > max_usd_order_size: 
                 chunk_size = max_usd_order_size
             else: 
                 chunk_size = size_needed
             chunk_size = int(chunk_size * 10**6)
-            chunk_size = str(chunk_size)
 
         except Exception as e:
             try:
                 cprint(f'Retrying order in 30 seconds: {str(e)}', 'light_blue', 'on_light_magenta')
                 time.sleep(30)
                 for i in range(orders_per_open):
-                    market_buy(symbol, chunk_size, SLIPPAGE)
+                    market_buy(symbol, float(chunk_size), SLIPPAGE)
                     cprint(f'chunk buy submitted of {symbol[:4]} sz: {chunk_size}', 'white', 'on_blue')
                     time.sleep(1)
 
@@ -880,13 +878,12 @@ def breakout_entry(symbol, BREAKOUT_PRICE):
                 pos = float(get_position(symbol) or 0)
                 price = float(token_price(symbol) or 0)
                 pos_usd = pos * price
-                size_needed = float(USDC_SIZE or 0) - pos_usd
+                size_needed = float(USDC_SIZE) - pos_usd
                 if size_needed > max_usd_order_size: 
                     chunk_size = max_usd_order_size
                 else: 
                     chunk_size = size_needed
                 chunk_size = int(chunk_size * 10**6)
-                chunk_size = str(chunk_size)
 
             except Exception as e:
                 cprint(f'Final Error in the buy: {str(e)}', 'white', 'on_red')
@@ -896,13 +893,12 @@ def breakout_entry(symbol, BREAKOUT_PRICE):
         pos = float(get_position(symbol) or 0)
         price = float(token_price(symbol) or 0)
         pos_usd = pos * price
-        size_needed = float(USDC_SIZE or 0) - pos_usd
+        size_needed = float(USDC_SIZE) - pos_usd
         if size_needed > max_usd_order_size: 
             chunk_size = max_usd_order_size
         else: 
             chunk_size = size_needed
         chunk_size = int(chunk_size * 10**6)
-        chunk_size = str(chunk_size)
 
 
 
@@ -917,7 +913,7 @@ def ai_entry(symbol, amount):
     price = token_price(symbol)
     pos_usd = pos * price
     
-    cprint(f"🎯 Target allocation: ${target_size:.2f} USD (max 30% of ${usd_size})", "white", "on_blue")
+    cprint(f"🎯 Target allocation: ${target_size:.2f} USD (max 30% of ${USDC_SIZE})", "white", "on_blue")
     cprint(f"📊 Current position: ${pos_usd:.2f} USD", "white", "on_blue")
     
     # Check if we're already at or above target
@@ -948,7 +944,7 @@ def ai_entry(symbol, amount):
 
         try:
             for i in range(orders_per_open):
-                market_buy(symbol, chunk_size, slippage)
+                market_buy(symbol, float(chunk_size), SLIPPAGE)
                 cprint(f"🚀 AI Agent placed order {i+1}/{orders_per_open} for {symbol[:8]}", "white", "on_blue")
                 time.sleep(1)
 
@@ -981,7 +977,7 @@ def ai_entry(symbol, amount):
                 cprint("🔄 AI Agent retrying order in 30 seconds...", "white", "on_blue")
                 time.sleep(30)
                 for i in range(orders_per_open):
-                    market_buy(symbol, chunk_size, slippage)
+                    market_buy(symbol, float(chunk_size), SLIPPAGE)
                     cprint(f"🚀 AI Agent retry order {i+1}/{orders_per_open} for {symbol[:8]}", "white", "on_blue")
                     time.sleep(1)
 
