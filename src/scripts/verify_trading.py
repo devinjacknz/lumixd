@@ -1,9 +1,43 @@
+import os
 import time
 from datetime import datetime, timedelta
 import requests
 from termcolor import cprint
 import pandas as pd
 from src.data.chainstack_client import ChainStackClient
+from src.agents.sentiment_agent import SentimentAgent
+
+def get_latest_sentiment_time() -> datetime:
+    """Get timestamp of latest sentiment data"""
+    try:
+        agent = SentimentAgent()
+        return agent.get_latest_sentiment_time()
+    except Exception as e:
+        cprint(f"Error getting sentiment time: {e}", "red")
+        return datetime.min
+
+def monitor_trading_metrics():
+    """Monitor key trading metrics"""
+    try:
+        while True:
+            # Check API latency
+            start_time = time.time()
+            response = requests.get(os.getenv('RPC_ENDPOINT'))
+            latency = (time.time() - start_time) * 1000
+            
+            if latency > 150:
+                cprint(f"⚠️ High API latency: {latency:.2f}ms", "yellow")
+                
+            # Check sentiment data freshness
+            last_sentiment = get_latest_sentiment_time()
+            if (datetime.now() - last_sentiment).seconds > 300:
+                cprint("⚠️ Sentiment data stale (>5 minutes old)", "yellow")
+                
+            time.sleep(10)  # Check every 10 seconds
+    except KeyboardInterrupt:
+        cprint("Monitoring stopped by user", "yellow")
+    except Exception as e:
+        cprint(f"❌ Error in monitoring: {str(e)}", "red")
 
 def verify_trading(duration_hours=2, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"):
     start_time = datetime.now()
@@ -87,7 +121,15 @@ def verify_trading(duration_hours=2, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmb
 
 if __name__ == "__main__":
     try:
+        # Run monitoring in parallel with verification
+        from multiprocessing import Process
+        monitor_process = Process(target=monitor_trading_metrics)
+        monitor_process.start()
+        
         verify_trading()
+        
+        monitor_process.terminate()
+        monitor_process.join()
     except KeyboardInterrupt:
         cprint("\n👋 Verification stopped by user", "yellow")
     except Exception as e:
