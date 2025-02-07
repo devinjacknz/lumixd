@@ -1,9 +1,8 @@
 import os
 import psutil
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import time
 from datetime import datetime
-from typing import Dict, Any
 from src.data.chainstack_client import ChainStackClient
 from src.monitoring.performance_monitor import PerformanceMonitor
 
