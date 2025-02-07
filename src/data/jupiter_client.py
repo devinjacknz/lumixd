@@ -64,12 +64,14 @@ class JupiterClient:
                 "computeUnitPriceMicroLamports": 10000,
                 "asLegacyTransaction": True
             }
+            cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
             data = response.json()
             
             unsigned_tx = data.get("swapTransaction")
             if not unsigned_tx:
+                cprint("❌ No swap transaction received", "red")
                 return None
                 
             response = requests.post(
@@ -85,12 +87,17 @@ class JupiterClient:
             response.raise_for_status()
             blockhash_data = response.json().get("result", {}).get("value", {})
             if not blockhash_data or "blockhash" not in blockhash_data:
+                cprint("❌ Failed to get blockhash", "red")
                 return None
                 
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             tx_bytes = base64.b64decode(unsigned_tx)
             tx = Transaction.from_bytes(tx_bytes)
-            tx.sign([wallet_key], Hash.from_string(blockhash_data["blockhash"]))
+            blockhash = Hash.from_string(blockhash_data["blockhash"])
+            tx.sign([wallet_key], blockhash)
+            
+            signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
+            cprint(f"📝 Signed transaction: {signed_tx[:64]}...", "cyan")
             
             response = requests.post(
                 self.rpc_url,
@@ -100,15 +107,23 @@ class JupiterClient:
                     "id": "submit-tx",
                     "method": "sendRawTransaction",
                     "params": [
-                        base64.b64encode(bytes(tx)).decode('utf-8'),
+                        signed_tx,
                         {"encoding": "base64", "maxRetries": 3}
                     ]
                 }
             )
             response.raise_for_status()
             data = response.json()
-            signature = data.get("result")
             
+            if "error" in data:
+                cprint(f"❌ RPC error: {json.dumps(data['error'], indent=2)}", "red")
+                return None
+                
+            signature = data.get("result")
+            if not signature:
+                cprint("❌ No transaction signature received", "red")
+                return None
+                
             if signature and self.monitor_transaction(signature):
                 return signature
             return None
