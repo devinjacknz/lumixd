@@ -88,8 +88,10 @@ class JupiterClient:
                 return None
                 
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            message = Message.from_bytes(base64.b64decode(unsigned_tx))
-            tx = Transaction([wallet_key], message, Hash.from_string(blockhash_data["blockhash"]))
+            tx = Transaction.from_bytes(base64.b64decode(unsigned_tx))
+            tx.message.recent_blockhash = Hash.from_string(blockhash_data["blockhash"])
+            tx.message.fee_payer = wallet_key.pubkey()
+            tx.sign([wallet_key])
             
             response = requests.post(
                 self.rpc_url,
