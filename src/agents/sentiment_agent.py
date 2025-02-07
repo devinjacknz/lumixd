@@ -453,6 +453,22 @@ class SentimentAgent(BaseAgent):
                 
         cprint("Sentiment Analysis complete!", "green")
 
+    def get_latest_sentiment_time(self) -> datetime:
+        """Get timestamp of latest sentiment data"""
+        try:
+            if not os.path.exists(SENTIMENT_HISTORY_FILE):
+                return datetime.min
+                
+            history_df = pd.read_csv(SENTIMENT_HISTORY_FILE)
+            if history_df.empty:
+                return datetime.min
+                
+            history_df['timestamp'] = pd.to_datetime(history_df['timestamp'])
+            return history_df['timestamp'].max()
+        except Exception as e:
+            cprint(f"Error getting sentiment time: {e}", "red")
+            return datetime.min
+
     def run(self):
         """Main function to run sentiment analysis (implements BaseAgent interface)"""
         self.run_async()  # Run the async implementation while maintaining BaseAgent interface
