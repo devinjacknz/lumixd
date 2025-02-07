@@ -24,6 +24,14 @@ async def create_instance(instance: TradingInstanceCreate):
         raise HTTPException(status_code=404, detail="Strategy not found")
         
     instance_id = f"instance_{len(instances_db) + 1}"
+    params = instance.parameters or {}
+    params.update({
+        "slippage_bps": params.get("slippage_bps", 250),
+        "max_retries": params.get("max_retries", 3),
+        "use_shared_accounts": params.get("use_shared_accounts", True),
+        "force_simpler_route": params.get("force_simpler_route", True)
+    })
+    
     new_instance = TradingInstance(
         id=instance_id,
         name=instance.name,
@@ -31,13 +39,7 @@ async def create_instance(instance: TradingInstanceCreate):
         strategy_id=instance.strategy_id,
         tokens=instance.tokens,
         amount_sol=instance.amount_sol,
-        parameters={
-            **instance.parameters or {},
-            "slippage_bps": instance.parameters.get("slippage_bps", 250),
-            "max_retries": instance.parameters.get("max_retries", 3),
-            "use_shared_accounts": instance.parameters.get("use_shared_accounts", True),
-            "force_simpler_route": instance.parameters.get("force_simpler_route", True)
-        }
+        parameters=params)
     )
     
     if not instance_manager.create_instance(new_instance):
