@@ -173,8 +173,8 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
         
         # Get quote using SOL or USDC as input
         input_mint = SOL_ADDRESS if USE_SOL_FOR_TRADING else USDC_ADDRESS
-        lamports = int(amount * 1e9) if USE_SOL_FOR_TRADING else int(amount * 1e6)
-        cprint(f'💰 Trading {amount} SOL ({lamports} lamports)...', 'cyan')
+        lamports = str(int(amount * 1e9)) if USE_SOL_FOR_TRADING else str(int(amount * 1e6))
+        cprint(f'💰 Trading {amount} {"SOL" if USE_SOL_FOR_TRADING else "USDC"} ({lamports} lamports)...', 'cyan')
         quote = jupiter.get_quote(
             input_mint=input_mint,
             output_mint=token,
