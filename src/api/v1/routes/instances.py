@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable
 from datetime import datetime
+from decimal import Decimal
+from src.services.instance_manager import InstanceManager
+from src.services.balance_manager import BalanceManager
 from src.api.v1.models.trading_instance import (
     TradingInstance,
     TradingInstanceCreate,
@@ -9,17 +12,23 @@ from src.api.v1.models.trading_instance import (
 from src.api.v1.models.strategy import Strategy
 from src.api.v1.routes.trades import TradeRequest
 from src.api.v1.routes.strategies import strategies_db
-from src.monitoring.performance_monitor import PerformanceMonitor
 from src.services.instance_manager import InstanceManager
 
-instance_manager = InstanceManager()
+def get_instance_manager() -> InstanceManager:
+    raise NotImplementedError()
+
+def get_balance_manager() -> BalanceManager:
+    raise NotImplementedError()
 
 router = APIRouter()
 instances_db: Dict[str, TradingInstance] = {}
-performance_monitor = PerformanceMonitor()
 
 @router.post("/create")
-async def create_instance(instance: TradingInstanceCreate):
+async def create_instance(
+    instance: TradingInstanceCreate,
+    instance_manager: InstanceManager = Depends(get_instance_manager),
+    balance_manager: BalanceManager = Depends(get_balance_manager)
+):
     if instance.strategy_id and instance.strategy_id not in strategies_db:
         raise HTTPException(status_code=404, detail="Strategy not found")
         
@@ -40,7 +49,6 @@ async def create_instance(instance: TradingInstanceCreate):
         tokens=instance.tokens,
         amount_sol=instance.amount_sol,
         parameters=params)
-    )
     
     if not instance_manager.create_instance(new_instance):
         raise HTTPException(status_code=500, detail="Failed to create trading instance")
@@ -53,7 +61,9 @@ async def create_instance(instance: TradingInstanceCreate):
     }
 
 @router.get("/list", response_model=List[TradingInstance])
-async def list_instances():
+async def list_instances(
+    instance_manager: InstanceManager = Depends(get_instance_manager)
+):
     instances = list(instances_db.values())
     for instance in instances:
         metrics = instance_manager.get_instance_metrics(instance.id)
@@ -68,7 +78,12 @@ async def get_instance(instance_id: str):
     return instances_db[instance_id]
 
 @router.put("/{instance_id}/update")
-async def update_instance(instance_id: str, update: TradingInstanceUpdate):
+async def update_instance(
+    instance_id: str,
+    update: TradingInstanceUpdate,
+    instance_manager: InstanceManager = Depends(get_instance_manager),
+    balance_manager: BalanceManager = Depends(get_balance_manager)
+):
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Trading instance not found")
         
@@ -93,7 +108,10 @@ async def update_instance(instance_id: str, update: TradingInstanceUpdate):
     }
 
 @router.post("/{instance_id}/toggle")
-async def toggle_instance(instance_id: str):
+async def toggle_instance(
+    instance_id: str,
+    instance_manager: InstanceManager = Depends(get_instance_manager)
+):
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Trading instance not found")
         
@@ -111,7 +129,11 @@ async def toggle_instance(instance_id: str):
     }
 
 @router.post("/{instance_id}/trade")
-async def execute_instance_trade(instance_id: str, trade: TradeRequest):
+async def execute_instance_trade(
+    instance_id: str,
+    trade: TradeRequest,
+    instance_manager: InstanceManager = Depends(get_instance_manager)
+):
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Instance not found")
         
@@ -135,7 +157,10 @@ async def execute_instance_trade(instance_id: str, trade: TradeRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{instance_id}/metrics")
-async def get_instance_metrics(instance_id: str):
+async def get_instance_metrics(
+    instance_id: str,
+    instance_manager: InstanceManager = Depends(get_instance_manager)
+):
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Instance not found")
         
@@ -146,7 +171,10 @@ async def get_instance_metrics(instance_id: str):
     return metrics
 
 @router.get("/{instance_id}/performance")
-async def get_instance_performance(instance_id: str):
+async def get_instance_performance(
+    instance_id: str,
+    instance_manager: InstanceManager = Depends(get_instance_manager)
+):
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Trading instance not found")
         
@@ -159,5 +187,5 @@ async def get_instance_performance(instance_id: str):
         "instance_id": instance_id,
         "instance": instance,
         "metrics": metrics,
-        "performance": performance_monitor.get_instance_metrics(instance_id)
+        "performance": instance_manager.performance_monitor.get_instance_metrics(instance_id)
     }
