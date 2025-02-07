@@ -3,6 +3,7 @@ import requests
 import json
 import time
 import os
+import base64
 from datetime import datetime
 from termcolor import cprint
 from solders.keypair import Keypair
@@ -83,7 +84,8 @@ class JupiterClient:
                 
             # Sign and send transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx = Transaction.from_bytes(bytes.fromhex(unsigned_tx))
+            tx_bytes = base64.b64decode(unsigned_tx)
+            tx = Transaction.from_bytes(tx_bytes)
             tx.sign([wallet_key])
             
             # Submit transaction
