@@ -20,7 +20,9 @@ from src.data.jupiter_client import JupiterClient
 from src.config import (
     USDC_SIZE,
     MAX_LOSS_PERCENTAGE,
-    SLIPPAGE
+    SLIPPAGE,
+    TRADING_INTERVAL,
+    MONITORED_TOKENS as FOCUS_TOKENS
 )
 from src.nice_funcs import (
     market_buy,
@@ -366,10 +368,20 @@ class TradingAgent:
         """Main processing loop"""
         print("\nTrading Agent starting...")
         print("Ready to analyze market data!")
+        print(f"Trading interval: {TRADING_INTERVAL} minutes")
+        print(f"Focus tokens: {', '.join(FOCUS_TOKENS)}")
         
         try:
             while True:
-                time.sleep(0.1)
+                for token in FOCUS_TOKENS:
+                    try:
+                        signal = self.generate_trading_signal(token)
+                        if signal and signal['signal'] > 0.7:
+                            self.execute_trade(token, 'BUY', USDC_SIZE)
+                    except Exception as e:
+                        print(f"Error trading {token}: {e}")
+                        
+                time.sleep(TRADING_INTERVAL * 60)
                 
         except KeyboardInterrupt:
             print("\nTrading Agent shutting down...")

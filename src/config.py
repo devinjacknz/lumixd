@@ -11,9 +11,12 @@ EXCLUDED_TOKENS = [USDC_ADDRESS, SOL_ADDRESS]  # Never trade these tokens
 
 # Token List for Trading
 MONITORED_TOKENS = [
-    '9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump',  # FART
-    'HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC'   # AI16Z
+    'HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC',   # AI16Z
+    'SWMqTfYZkULJAVBYfWVwfuL5VL5PZwx89Y135dCE2ny'     # SWARM
 ]
+
+# Trading Interval
+TRADING_INTERVAL = 15  # minutes between trades
 
 # Trading List Configuration
 tokens_to_trade = MONITORED_TOKENS
