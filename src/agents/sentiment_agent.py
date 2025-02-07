@@ -114,7 +114,7 @@ class SentimentAgent(BaseAgent):
             cprint(f"⚠️ Error loading sentiment model: {str(e)}", "yellow")
             self.tokenizer = None
             self.model = None
-        cprint("Sentiment Agent initialized! (Twitter functionality disabled)", "green")
+        cprint("Sentiment Agent initialized with Twitter functionality!", "green")
         
     def init_sentiment_model(self):
         """Initialize the BERT model for sentiment analysis"""
@@ -329,17 +329,46 @@ class SentimentAgent(BaseAgent):
         message += "."
         
         # Announce with voice if sentiment is significant or if there's a big change
-        is_important = abs(sentiment_score) > SENTIMENT_ANNOUNCE_THRESHOLD or (percent_change is not None and abs(percent_change) > 5)
-        self._announce(message, is_important)
+        should_announce = bool(abs(sentiment_score) > SENTIMENT_ANNOUNCE_THRESHOLD or (percent_change is not None and abs(percent_change) > 5))
+        self._announce(message, should_announce)
         
         # If not announcing vocally, print the raw score for debugging
-        if not is_important:
+        if not should_announce:
             cprint(f"📊 Raw sentiment score: {sentiment_score:.2f} (on scale of -1 to 1)", "cyan")
 
     def get_tweets(self, query):
-        """Disabled Twitter functionality - returns empty list"""
-        cprint("⚠️ Twitter functionality is disabled", "yellow")
-        return []
+        """Get tweets using Twitter API"""
+        try:
+            from twikit import Twitter
+            
+            # Initialize Twitter client
+            twitter = Twitter(
+                username=os.getenv("TWITTER_USERNAME"),
+                password=os.getenv("TWITTER_PASSWORD"),
+                email=os.getenv("TWITTER_EMAIL")
+            )
+            
+            # Add rate limiting
+            time.sleep(1)  # Rate limit: 1 request per second
+            
+            # Search tweets with retry logic
+            max_retries = 3
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    tweets = twitter.search(query, limit=TWEETS_PER_RUN)
+                    cprint(f"✅ Found {len(tweets)} tweets for {query}", "green")
+                    return tweets
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        raise
+                    cprint(f"⚠️ Twitter API error (attempt {retry_count}/{max_retries}): {e}", "yellow")
+                    time.sleep(retry_count * 5)  # Exponential backoff
+            
+        except Exception as e:
+            cprint(f"❌ Error getting tweets: {str(e)}", "red")
+            return []
 
     def save_tweets(self, tweets, token):
         """Save tweets to CSV file using pandas, appending new ones and avoiding duplicates"""
@@ -399,10 +428,18 @@ class SentimentAgent(BaseAgent):
             cprint(f"❌ Error saving to CSV: {str(e)}", "red")
 
     def run_async(self):
-        """Run sentiment analysis (Twitter functionality disabled)"""
+        """Run sentiment analysis with Twitter integration"""
         cprint("Sentiment Analysis running...", "cyan")
-        cprint("⚠️ Twitter functionality is disabled", "yellow")
-        time.sleep(CHECK_INTERVAL_MINUTES * 60)
+        
+        for token in TOKENS_TO_TRACK:
+            try:
+                cprint(f"\n🔍 Analyzing sentiment for {token}...", "cyan")
+                tweets = self.get_tweets(token)
+                self.save_tweets(tweets, token)
+                self.analyze_and_announce_sentiment(tweets)
+            except Exception as e:
+                cprint(f"❌ Error analyzing {token}: {str(e)}", "red")
+                
         cprint("Sentiment Analysis complete!", "green")
 
     def run(self):
