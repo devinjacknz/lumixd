@@ -223,6 +223,26 @@ class TradingAgent:
             print(f"Error executing trade: {e}")
             return False
             
+    def check_circuit_breakers(self, trade_data: dict) -> tuple[bool, str]:
+        """Check multi-layer circuit breakers"""
+        try:
+            # Circuit breaker 1: Single trade loss
+            if trade_data.get('unrealized_loss_percentage', 0) > 2:
+                return False, "Single trade loss exceeds 2% - reducing position by 50%"
+                
+            # Circuit breaker 2: Market volatility
+            if trade_data.get('market_volatility', 0) > 0.3:
+                return False, "Market volatility exceeds 30% - halting trading"
+                
+            # Circuit breaker 3: Portfolio volatility
+            if trade_data.get('portfolio_volatility', 0) > 0.25:
+                return False, "Portfolio volatility high - reducing leverage to 50%"
+                
+            return True, ""
+        except Exception as e:
+            print(f"Error in circuit breakers: {e}")
+            return False, f"Circuit breaker error: {str(e)}"
+            
     def _check_risk_limits(self) -> bool:
         """Check risk management limits with circuit breakers"""
         try:
@@ -232,26 +252,24 @@ class TradingAgent:
                 
             total_value = positions['USD Value'].sum()
             
+            # Prepare trade data
+            trade_data = {
+                'portfolio_value': total_value,
+                'portfolio_volatility': self._calculate_portfolio_volatility(positions),
+                'market_volatility': self.calculate_volatility("SOL"),  # Use SOL as market indicator
+            }
+            
             # Check individual position sizes
             for _, pos in positions.iterrows():
                 size_percentage = (pos['USD Value'] / total_value) * 100
+                trade_data['unrealized_loss_percentage'] = -pos.get('unrealized_pnl_percentage', 0)
                 
-                # Circuit breaker 1: Position size limit
-                if size_percentage > self.max_position_size:
-                    print(f"🚨 Circuit breaker: Position size {size_percentage:.2f}% exceeds limit {self.max_position_size}%")
+                # Check circuit breakers
+                is_safe, reason = self.check_circuit_breakers(trade_data)
+                if not is_safe:
+                    print(f"🚨 Circuit breaker: {reason}")
                     return False
                     
-                # Circuit breaker 2: Loss limit per position
-                if pos.get('unrealized_pnl_percentage', 0) < -MAX_LOSS_PERCENTAGE:
-                    print(f"🚨 Circuit breaker: Loss {pos.get('unrealized_pnl_percentage', 0):.2f}% exceeds limit {MAX_LOSS_PERCENTAGE}%")
-                    return False
-                    
-            # Circuit breaker 3: Portfolio volatility
-            portfolio_volatility = self._calculate_portfolio_volatility(positions)
-            if portfolio_volatility > 0.3:  # 30% volatility threshold
-                print(f"🚨 Circuit breaker: Portfolio volatility {portfolio_volatility:.2f} exceeds threshold")
-                return False
-                
             return True
             
         except Exception as e:
