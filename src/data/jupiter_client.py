@@ -3,10 +3,14 @@ import requests
 import json
 import time
 import os
+from datetime import datetime
 from termcolor import cprint
 from solders.keypair import Keypair
 from solders.transaction import Transaction
 from dotenv import load_dotenv
+
+# Create logs directory
+os.makedirs("logs", exist_ok=True)
 
 load_dotenv()
 
@@ -184,6 +188,12 @@ class JupiterClient:
             # Sign and send transaction
             tx = Transaction.from_bytes(bytes.fromhex(create_tx))
             tx.sign([wallet_key])
+            self._log_transaction("Create ATA", {
+                "mint": mint,
+                "owner": owner,
+                "ata": ata,
+                "transaction": tx.to_string()
+            })
             return self._send_and_confirm_transaction(tx)
         except Exception as e:
             cprint(f"❌ Failed to create token account: {str(e)}", "red")
@@ -212,6 +222,16 @@ class JupiterClient:
         except Exception as e:
             cprint(f"❌ Failed to send transaction: {str(e)}", "red")
             return None
+
+    def _log_transaction(self, action: str, details: dict):
+        """Log transaction details for debugging"""
+        try:
+            log_file = f"logs/transactions_{datetime.now().strftime('%Y%m%d')}.log"
+            with open(log_file, "a") as f:
+                f.write(f"{datetime.now().isoformat()} - {action}\n")
+                f.write(json.dumps(details, indent=2) + "\n\n")
+        except Exception as e:
+            cprint(f"❌ Failed to log transaction: {str(e)}", "red")
 
     def monitor_transaction(self, signature: str, max_retries: int = 5) -> bool:
         """Monitor transaction status with exponential backoff"""
