@@ -31,13 +31,44 @@ class TradingAgent:
         self.cash_buffer = 0.30
         self.slippage = 0.025
         
+    def _parse_analysis(self, response: str) -> dict:
+        """Parse AI model response into structured data"""
+        default_analysis = {
+            'sentiment': 'neutral',
+            'confidence': 0.0,
+            'action': 'hold',
+            'reason': ''
+        }
+        
+        try:
+            lines = response.strip().split('\n')
+            analysis = default_analysis.copy()
+            
+            for line in lines:
+                if 'sentiment:' in line.lower():
+                    analysis['sentiment'] = line.split(':')[1].strip().lower()
+                elif 'confidence:' in line.lower():
+                    try:
+                        analysis['confidence'] = float(line.split(':')[1].strip().replace('%', '')) / 100
+                    except:
+                        pass
+                elif 'action:' in line.lower():
+                    analysis['action'] = line.split(':')[1].strip().lower()
+                elif 'reason:' in line.lower():
+                    analysis['reason'] = line.split(':')[1].strip()
+                    
+            return analysis
+        except Exception as e:
+            print(f"Error parsing analysis: {e}")
+            default_analysis['reason'] = f'Error: {e}'
+            return default_analysis
+            
     def analyze_market_data(self, token_data):
         """Analyze market data for trading opportunities"""
         if not token_data or not isinstance(token_data, dict):
             return None
             
         try:
-            # Format data for analysis
             context = f"""
             Token: {token_data.get('symbol')}
             Price: {token_data.get('price')}

@@ -25,13 +25,46 @@ class RiskAgent:
         self.cash_buffer = 0.30
         self.slippage = 0.025
         
+    def _parse_analysis(self, response: str) -> dict:
+        """Parse AI model response into structured data"""
+        default_analysis = {
+            'risk_level': 'high',
+            'warnings': ['System error occurred'],
+            'actions': ['halt_trading'],
+            'reason': ''
+        }
+        
+        try:
+            lines = response.strip().split('\n')
+            analysis = {
+                'risk_level': 'low',
+                'warnings': [],
+                'actions': [],
+                'reason': ''
+            }
+            
+            for line in lines:
+                if 'risk level:' in line.lower():
+                    analysis['risk_level'] = line.split(':')[1].strip().lower()
+                elif 'warning:' in line.lower():
+                    analysis['warnings'].append(line.split(':')[1].strip())
+                elif 'action:' in line.lower():
+                    analysis['actions'].append(line.split(':')[1].strip())
+                elif 'reason:' in line.lower():
+                    analysis['reason'] = line.split(':')[1].strip()
+                    
+            return analysis
+        except Exception as e:
+            print(f"Error parsing analysis: {e}")
+            default_analysis['reason'] = f'Error: {e}'
+            return default_analysis
+            
     def analyze_risk(self, portfolio_data):
         """Analyze portfolio risk"""
         if not portfolio_data or not isinstance(portfolio_data, dict):
             return None
             
         try:
-            # Format data for analysis
             context = f"""
             Portfolio Value: ${portfolio_data.get('total_value', 0):.2f}
             Current PnL: ${portfolio_data.get('pnl', 0):.2f}
