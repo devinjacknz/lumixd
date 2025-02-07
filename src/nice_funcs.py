@@ -158,7 +158,7 @@ def token_creation_info(address):
         cprint(f"✨ Error getting token creation info: {str(e)}", "red")
         return None
 
-def market_buy(token: str, amount: float, slippage_bps: int = SLIPPAGE) -> bool:
+def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
     """Execute a market buy order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -173,7 +173,7 @@ def market_buy(token: str, amount: float, slippage_bps: int = SLIPPAGE) -> bool:
             input_mint=USDC_ADDRESS,
             output_mint=token,
             amount=int(amount),
-            slippage_bps=slippage_bps
+            slippage_bps=int(SLIPPAGE)
         )
         if not quote:
             return False
@@ -189,7 +189,7 @@ def market_buy(token: str, amount: float, slippage_bps: int = SLIPPAGE) -> bool:
         cprint(f"❌ Market buy failed: {str(e)}", "red")
         return False
 
-def market_sell(token: str, amount: float, slippage_bps: int = SLIPPAGE) -> bool:
+def market_sell(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
     """Execute a market sell order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -204,7 +204,7 @@ def market_sell(token: str, amount: float, slippage_bps: int = SLIPPAGE) -> bool
             input_mint=token,
             output_mint=USDC_ADDRESS,
             amount=int(amount),
-            slippage_bps=slippage_bps
+            slippage_bps=int(SLIPPAGE)
         )
         if not quote:
             return False
@@ -257,8 +257,11 @@ def fetch_wallet_holdings_og(wallet_address: str) -> pd.DataFrame:
             }])
             
         # Get token accounts
+        rpc_endpoint = os.getenv("RPC_ENDPOINT")
+        if not rpc_endpoint:
+            raise ValueError("RPC_ENDPOINT environment variable is required")
         response = requests.post(
-            os.getenv("RPC_ENDPOINT"),
+            rpc_endpoint,
             headers={"Content-Type": "application/json"},
             json={
                 "jsonrpc": "2.0",
@@ -559,7 +562,7 @@ def chunk_kill(token_mint_address, max_usd_order_size, slippage):
             
             # Check remaining position
             time.sleep(5)  # Wait for blockchain to update
-            df = fetch_wallet_token_single(wallet_address, token_mint_address)
+            df = fetch_wallet_token_single(WALLET_ADDRESS, token_mint_address)
             if df.empty:
                 cprint("\n✨ Position successfully closed!", "white", "on_green")
                 return
