@@ -272,6 +272,72 @@ class TradingAgent:
             print(f"Error calculating portfolio volatility: {e}")
             return 1.0  # Return high volatility on error
 
+    def get_token_data(self, token: str) -> dict:
+        """Get token market data"""
+        try:
+            from src.data.chainstack_client import ChainStackClient
+            client = ChainStackClient()
+            return client.get_token_data(token)
+        except Exception as e:
+            print(f"Error getting token data: {e}")
+            return {}
+
+    def calculate_volatility(self, token: str) -> float:
+        """Calculate token volatility using ATR"""
+        try:
+            token_data = self.get_token_data(token)
+            if not token_data:
+                return 0.2  # Default 20% volatility
+                
+            atr = calculate_atr(
+                token_data.get('high_prices', []),
+                token_data.get('low_prices', []),
+                token_data.get('close_prices', [])
+            )
+            
+            # Normalize ATR to percentage
+            current_price = token_data.get('close_prices', [])[-1] if token_data.get('close_prices') else 1
+            return float(atr / current_price if current_price > 0 else 0.2)
+            
+        except Exception as e:
+            print(f"Error calculating volatility: {e}")
+            return 0.2
+
+    def generate_trading_signal(self, token: str) -> dict:
+        """Generate trading signal with weighted factors"""
+        try:
+            # Get strategy signal (60%)
+            strategy_signal = self.analyze_market_data({'symbol': token}).get('confidence', 0)
+            strategy_weight = 0.6
+            
+            # Get sentiment signal (30%)
+            from src.agents.sentiment_agent import SentimentAgent
+            sentiment_agent = SentimentAgent()
+            sentiment_score = sentiment_agent.get_latest_sentiment_time()
+            sentiment_weight = 0.3
+            
+            # Get volatility signal (10%)
+            volatility = self.calculate_volatility(token)
+            volatility_signal = 1 if volatility < 0.3 else 0
+            volatility_weight = 0.1
+            
+            # Combine signals
+            total_signal = (
+                strategy_signal * strategy_weight +
+                sentiment_score * sentiment_weight +
+                volatility_signal * volatility_weight
+            )
+            
+            return {
+                'signal': total_signal,
+                'strategy': strategy_signal,
+                'sentiment': sentiment_score,
+                'volatility': volatility_signal
+            }
+        except Exception as e:
+            print(f"❌ Error generating trading signal: {str(e)}", "red")
+            return None
+
     def run(self):
         """Main processing loop"""
         print("\nTrading Agent starting...")
