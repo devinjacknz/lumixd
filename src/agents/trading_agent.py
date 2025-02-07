@@ -313,7 +313,8 @@ class TradingAgent:
             # Get sentiment signal (30%)
             from src.agents.sentiment_agent import SentimentAgent
             sentiment_agent = SentimentAgent()
-            sentiment_score = sentiment_agent.get_latest_sentiment_time()
+            sentiment_data = sentiment_agent.analyze_sentiment([], source='twitter')  # Empty list for latest sentiment
+            sentiment_score = float(sentiment_data) if sentiment_data is not None else 0.0
             sentiment_weight = 0.3
             
             # Get volatility signal (10%)
@@ -323,20 +324,25 @@ class TradingAgent:
             
             # Combine signals
             total_signal = (
-                strategy_signal * strategy_weight +
+                float(strategy_signal) * strategy_weight +
                 sentiment_score * sentiment_weight +
-                volatility_signal * volatility_weight
+                float(volatility_signal) * volatility_weight
             )
             
             return {
                 'signal': total_signal,
-                'strategy': strategy_signal,
+                'strategy': float(strategy_signal),
                 'sentiment': sentiment_score,
-                'volatility': volatility_signal
+                'volatility': float(volatility_signal)
             }
         except Exception as e:
             print(f"❌ Error generating trading signal: {str(e)}", "red")
-            return None
+            return {
+                'signal': 0.0,
+                'strategy': 0.0,
+                'sentiment': 0.0,
+                'volatility': 0.0
+            }
 
     def run(self):
         """Main processing loop"""
