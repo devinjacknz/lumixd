@@ -6,7 +6,7 @@ from src.data.jupiter_client import JupiterClient
 
 # Token addresses
 AI16Z_TOKEN = "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC"
-SWARM_TOKEN = "8sN9549P3Zn6xpQRqpApN57xzkCh6sJxLwuEjcG2W4Ji"
+SWARM_TOKEN = "GHoewwgqzpyr4honfYZXDjWVqEQf4UVnNkbzqpqzwxPr"  # Updated SWARM token address
 SOL_TOKEN = "So11111111111111111111111111111111111111112"
 
 # Trading parameters
