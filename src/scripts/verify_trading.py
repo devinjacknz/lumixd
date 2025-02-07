@@ -16,11 +16,22 @@ VERIFICATION_DURATION_HOURS = 2
 
 def execute_trade(client: JupiterClient, input_token: str, output_token: str, amount_lamports: int) -> bool:
     try:
-        quote = client.get_quote(input_token, output_token, str(amount_lamports))
+        # Get quote with simpler route to reduce transaction size
+        quote = client.get_quote(
+            input_token, 
+            output_token, 
+            str(amount_lamports),
+            use_shared_accounts=True,
+            force_simpler_route=True
+        )
         if not quote:
             return False
             
-        signature = client.execute_swap(quote, os.getenv("WALLET_ADDRESS"))
+        signature = client.execute_swap(
+            quote, 
+            os.getenv("WALLET_ADDRESS"),
+            use_shared_accounts=True
+        )
         if not signature:
             return False
             

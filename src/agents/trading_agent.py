@@ -7,14 +7,16 @@ import os
 import sys
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from termcolor import cprint
 from dotenv import load_dotenv
+from src.monitoring.performance_monitor import PerformanceMonitor
+from src.monitoring.system_monitor import SystemMonitor
 from src import nice_funcs as n
 from src.data.ohlcv_collector import collect_all_tokens
-from src.agents.focus_agent import MODEL_TYPE, MODEL_NAME
+from src.strategies.snap_strategy import SnapStrategy
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
 from src.data.chainstack_client import ChainStackClient
@@ -50,15 +52,18 @@ from src.nice_funcs import (
 load_dotenv()
 
 class TradingAgent:
-    def __init__(self, model_type=MODEL_TYPE, model_name=MODEL_NAME):
+    def __init__(self, model_type="deepseek", model_name="deepseek-r1:1.5b"):
         self.model_type = model_type
         self.model_name = model_name
         self.model_factory = ModelFactory()
         self.model = self.model_factory.get_model(self.model_type)
-        self.min_trade_size = 0.01
+        self.min_trade_size = MIN_TRADE_SIZE_SOL
         self.max_position_size = 0.20
         self.cash_buffer = 0.30
-        self.slippage = 0.025
+        self.slippage = SLIPPAGE
+        self.snap_strategy = SnapStrategy()
+        self.performance_monitor = PerformanceMonitor()
+        self.system_monitor = SystemMonitor(self.performance_monitor)
         
     def _parse_analysis(self, response: str) -> dict:
         """Parse AI model response into structured data"""
@@ -136,84 +141,66 @@ class TradingAgent:
             return 0
             
     def analyze_market_data(self, token_data: dict) -> dict:
-        """Analyze market data for trading opportunities using multi-factor model"""
+        """Analyze market data using Snap strategy and DeepSeek model"""
         if not token_data or not isinstance(token_data, dict):
             return {
-                'action': 'hold',
+                'action': 'NEUTRAL',
                 'confidence': 0.0,
                 'reason': 'Invalid token data',
                 'metadata': {}
             }
             
         try:
-            context = f"""
-            Token: {token_data.get('symbol')}
-            Price: {token_data.get('price')}
-            Volume: {token_data.get('volume')}
-            Market Cap: {token_data.get('market_cap')}
-            """
+            # Get Snap strategy signals
+            self.snap_strategy.set_token(token_data.get('symbol'))
+            strategy_signals = self.snap_strategy.generate_signals()
             
+            # Get DeepSeek analysis
             if not self.model:
                 return {
-                    'action': 'hold',
+                    'action': 'NEUTRAL',
                     'confidence': 0.0,
                     'reason': 'Model not initialized',
                     'metadata': {}
                 }
                 
-            # Get AI analysis
-            response = self.model.generate_response(
-                system_prompt="You are the Trading Analysis AI. Analyze market data.",
-                user_content=context,
-                temperature=0.7
+            model_analysis = self.model.analyze_trading_opportunity(token_data)
+            if not model_analysis:
+                return {
+                    'action': 'NEUTRAL',
+                    'confidence': 0.0,
+                    'reason': 'Model analysis failed',
+                    'metadata': {}
+                }
+                
+            # Combine signals
+            signal_strength = self.calculate_signal_strength(
+                strategy_signals.get('signal', 0),
+                model_analysis.get('confidence', 0),
+                token_data.get('volatility', 0.2)
             )
-            analysis = self._parse_analysis(response)
             
-            if analysis:
-                # Calculate composite signal
-                strategy_signal = float(analysis.get('confidence', 0))
-                sentiment_score = float(token_data.get('sentiment_score', 0))
-                volatility = float(token_data.get('volatility', 0.2))
-                
-                # Adjust weights based on market condition
-                market_condition = self.detect_market_condition(token_data)
-                if market_condition == 'trending':
-                    signal_strength = self.calculate_signal_strength(
-                        strategy_signal * 1.2,  # Boost strategy signal in trends
-                        sentiment_score * 0.8,  # Reduce sentiment impact
-                        volatility
-                    )
-                else:
-                    signal_strength = self.calculate_signal_strength(
-                        strategy_signal,
-                        sentiment_score,
-                        volatility
-                    )
-                
-                # Execute trade if signal is strong enough
-                if signal_strength > 0.7 and analysis.get('action') != 'hold':
-                    position_size = self.calculate_position_size(token_data)
-                    if position_size > 0:
-                        self.execute_trade(
-                            token=str(token_data.get('symbol')),
-                            direction=analysis.get('action', 'NEUTRAL').upper(),
-                            amount=position_size
-                        )
-                        
-                analysis['signal_strength'] = signal_strength
-                return analysis
-                
+            # Determine final direction
+            strategy_direction = strategy_signals.get('direction', 'NEUTRAL')
+            model_direction = model_analysis.get('direction', 'NEUTRAL')
+            
+            # Only trade if both signals agree
+            final_direction = strategy_direction if strategy_direction == model_direction else 'NEUTRAL'
+            
             return {
-                'action': 'hold',
-                'confidence': 0.0,
-                'reason': 'Analysis failed',
-                'metadata': {}
+                'action': final_direction,
+                'confidence': signal_strength,
+                'reason': f"Strategy: {strategy_signals.get('metadata', {})} | Model: {model_analysis.get('factors', [])}",
+                'metadata': {
+                    'strategy_signals': strategy_signals,
+                    'model_analysis': model_analysis,
+                    'params': strategy_signals.get('metadata', {}).get('params', {})
+                }
             }
-                
         except Exception as e:
-            print(f"Error analyzing market data: {e}")
+            cprint(f"❌ Error analyzing market data: {str(e)}", "red")
             return {
-                'action': 'hold',
+                'action': 'NEUTRAL',
                 'confidence': 0.0,
                 'reason': f'Error: {str(e)}',
                 'metadata': {}
@@ -272,12 +259,28 @@ class TradingAgent:
             
             # Calculate SOL amount for trade
             trade_amount = min(amount, MAX_ORDER_SIZE_SOL)
+            client = ChainStackClient()
+            start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
+            
             if direction == 'BUY':
                 success = market_buy(str(token), trade_amount, SLIPPAGE)
             elif direction == 'SELL':
                 success = market_sell(str(token), trade_amount, SLIPPAGE)
             else:
                 return False
+                
+            if success:
+                end_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
+                gas_cost = start_balance - end_balance - (trade_amount if direction == 'SELL' else 0)
+                self.performance_monitor.log_trade_metrics({
+                    'token': token,
+                    'direction': direction,
+                    'amount': trade_amount,
+                    'execution_time': 0,  # Will be set by caller
+                    'slippage': self.slippage * 100,
+                    'gas_cost': gas_cost,
+                    'success': True
+                })
                 
             return success
         except Exception as e:
@@ -383,68 +386,127 @@ class TradingAgent:
             return 0.2
 
     def generate_trading_signal(self, token: str) -> dict:
-        """Generate trading signal with weighted factors"""
+        """Generate trading signal using DeepSeek model and Snap strategy"""
         try:
-            # Get strategy signal (60%)
-            strategy_signal = self.analyze_market_data({'symbol': token}).get('confidence', 0)
-            strategy_weight = 0.6
-            
-            # Get sentiment signal (30%)
-            from src.agents.sentiment_agent import SentimentAgent
-            sentiment_agent = SentimentAgent()
-            sentiment_data = sentiment_agent.analyze_sentiment([], source='twitter')  # Empty list for latest sentiment
-            sentiment_score = float(sentiment_data) if sentiment_data is not None else 0.0
-            sentiment_weight = 0.3
-            
-            # Get volatility signal (10%)
-            volatility = self.calculate_volatility(token)
-            volatility_signal = 1 if volatility < 0.3 else 0
-            volatility_weight = 0.1
-            
-            # Combine signals
-            total_signal = (
-                float(strategy_signal) * strategy_weight +
-                sentiment_score * sentiment_weight +
-                float(volatility_signal) * volatility_weight
-            )
-            
+            token_data = self.get_token_data(token)
+            if not token_data:
+                return {
+                    'signal': 0.0,
+                    'direction': 'NEUTRAL',
+                    'confidence': 0.0,
+                    'metadata': {}
+                }
+                
+            analysis = self.analyze_market_data(token_data)
             return {
-                'signal': total_signal,
-                'strategy': float(strategy_signal),
-                'sentiment': sentiment_score,
-                'volatility': float(volatility_signal)
+                'signal': analysis['confidence'],
+                'direction': analysis['action'],
+                'confidence': analysis['confidence'],
+                'metadata': analysis['metadata']
             }
         except Exception as e:
-            print(f"❌ Error generating trading signal: {str(e)}", "red")
+            cprint(f"❌ Error generating trading signal: {str(e)}", "red")
             return {
                 'signal': 0.0,
-                'strategy': 0.0,
-                'sentiment': 0.0,
-                'volatility': 0.0
+                'direction': 'NEUTRAL',
+                'confidence': 0.0,
+                'metadata': {}
             }
 
     def run(self):
         """Main processing loop"""
-        print("\nTrading Agent starting...")
-        print("Ready to analyze market data!")
-        print(f"Trading interval: {TRADING_INTERVAL} minutes")
-        print(f"Focus tokens: {', '.join(FOCUS_TOKENS)}")
+        cprint("\n🚀 Trading Agent starting...", "cyan")
+        cprint("✨ Using DeepSeek R1 1.5b model for analysis", "cyan")
+        cprint(f"⏱️ Trading interval: {TRADING_INTERVAL} minutes", "cyan")
+        cprint(f"💰 Trade size: {MIN_TRADE_SIZE_SOL} SOL", "cyan")
+        cprint(f"🎯 Focus tokens: {', '.join(FOCUS_TOKENS)}", "cyan")
+        
+        last_trade_time = datetime.now() - timedelta(minutes=TRADING_INTERVAL)
         
         try:
             while True:
+                # Check system health
+                self.system_monitor.check_system_health()
+                
                 for token in FOCUS_TOKENS:
                     try:
-                        signal = self.generate_trading_signal(token)
-                        if signal and signal['signal'] > 0.7:
-                            # Use MIN_TRADE_SIZE_SOL for initial trades
-                            self.execute_trade(token, 'BUY', MIN_TRADE_SIZE_SOL)
+                        # Get market data
+                        token_data = self.get_token_data(token)
+                        if not token_data:
+                            continue
+                            
+                        # Analyze with Snap strategy and DeepSeek
+                        analysis = self.analyze_market_data(token_data)
+                        
+                        # Execute trade if signal is strong
+                        if analysis['confidence'] > 0.7 and analysis['action'] != 'NEUTRAL':
+                            trade_size = MIN_TRADE_SIZE_SOL
+                            if analysis['metadata'].get('params'):
+                                params = analysis['metadata']['params']
+                                trade_size *= params.get('size', 1.0)
+                                
+                            start_time = time.time()
+                            success = self.execute_trade(
+                                token=token,
+                                direction=analysis['action'],
+                                amount=trade_size
+                            )
+                            execution_time = int((time.time() - start_time) * 1000)
+                            
+                            self.performance_monitor.log_trade_metrics({
+                                'token': token,
+                                'direction': analysis['action'],
+                                'amount': trade_size,
+                                'execution_time': execution_time,
+                                'slippage': self.slippage * 100,
+                                'gas_cost': 0.000005,
+                                'success': success
+                            })
+                            
+                            if success:
+                                cprint(f"✅ Trade executed for {token}", "green")
+                                cprint(f"💡 Reason: {analysis['reason']}", "cyan")
+                                
+                            self.system_monitor.monitor_trading_interval(token, last_trade_time)
+                            last_trade_time = datetime.now()
+                            
+                            # Print trade summary
+                            self.performance_monitor.print_summary()
+                            
                     except Exception as e:
-                        print(f"Error trading {token}: {e}")
+                        cprint(f"❌ Error trading {token}: {str(e)}", "red")
+                        self.performance_monitor.log_trade_metrics({
+                            'token': token,
+                            'direction': 'NEUTRAL',
+                            'amount': 0,
+                            'execution_time': 0,
+                            'slippage': 0,
+                            'gas_cost': 0,
+                            'success': False
+                        })
+                        
+                # Print performance summary every hour
+                if datetime.now().minute == 0:
+                    self.performance_monitor.print_summary()
+                    
+                # Print performance summary and check system health
+                if datetime.now().minute % 15 == 0:
+                    self.performance_monitor.print_summary()
+                    health_metrics = self.system_monitor.check_system_health()
+                    if health_metrics.get('rpc_latency', 0) > 5000:  # 5s latency threshold
+                        cprint("⚠️ High RPC latency detected!", "yellow")
+                    if health_metrics.get('cpu_usage', 0) > 80:
+                        cprint("⚠️ High CPU usage detected!", "yellow")
                         
                 time.sleep(TRADING_INTERVAL * 60)
                 
         except KeyboardInterrupt:
             print("\nTrading Agent shutting down...")
+            self.performance_monitor.print_summary()
+            
+        except Exception as e:
+            cprint(f"❌ Critical error: {str(e)}", "red")
+            self.performance_monitor.print_summary()
 
 if __name__ == "__main__":
     agent = TradingAgent()
