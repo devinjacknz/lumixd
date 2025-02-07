@@ -1,0 +1,19 @@
+{
+  "tokens": [
+    {
+      "symbol": "AI16Z",
+      "address": "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC",
+      "decimals": 9,
+      "name": "AI16z Token"
+    },
+    {
+      "symbol": "SWARM",
+      "address": "SWMqTfYZkULJAVBYfWVwfuL5VL5PZwx89Y135dCE2ny",
+      "decimals": 9,
+      "name": "SWARM Token"
+    }
+  ],
+  "lastUpdated": "2024-02-07T11:23:00Z",
+  "tradingInterval": 15,
+  "description": "Focused token list for AI16z and SWARM trading"
+}

@@ -56,10 +56,20 @@ class ChainStackClient:
         return 0.0
             
     def get_wallet_balance(self, wallet_address: str) -> float:
-        response = self._post_rpc("getBalance", [wallet_address])
-        if "result" in response and "value" in response["result"]:
-            return float(response["result"]["value"]) / 1e9
-        return 0.0
+        try:
+            if not wallet_address:
+                cprint("❌ Invalid wallet address", "red")
+                return 0.0
+            response = self._post_rpc("getBalance", [wallet_address])
+            if "result" in response:
+                balance = float(response["result"]["value"]) / 1e9
+                cprint(f"✅ SOL Balance: {balance:.6f}", "green")
+                return balance
+            cprint("❌ Failed to get balance", "red")
+            return 0.0
+        except Exception as e:
+            cprint(f"❌ Error getting wallet balance: {str(e)}", "red")
+            return 0.0
 
     def get_token_data(self, token_address: str, days_back: int = 3, timeframe: str = '1H') -> pd.DataFrame:
         response = self._post_rpc("getTokenLargestAccounts", [token_address])

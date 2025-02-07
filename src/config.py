@@ -4,16 +4,19 @@ Lumix Trading System Configuration
 
 # Token Addresses
 USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # USDC token address
-SOL_ADDRESS = "So11111111111111111111111111111112"   # Native SOL token address
+SOL_ADDRESS = "So11111111111111111111111111111111111111112"   # Native SOL token address
 
 # Trading Exclusions
 EXCLUDED_TOKENS = [USDC_ADDRESS, SOL_ADDRESS]  # Never trade these tokens
 
 # Token List for Trading
 MONITORED_TOKENS = [
-    '9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump',  # FART
-    'HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC'   # AI16Z
+    'HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC',   # AI16Z
+    'SWMqTfYZkULJAVBYfWVwfuL5VL5PZwx89Y135dCE2ny'     # SWARM
 ]
+
+# Trading Interval
+TRADING_INTERVAL = 15  # minutes between trades
 
 # Trading List Configuration
 tokens_to_trade = MONITORED_TOKENS
@@ -23,16 +26,18 @@ WALLET_ADDRESS = "4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"  # Trading walle
 DEFAULT_SYMBOL = '9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump'
 
 # Position Sizing and Trading Parameters
-POSITION_SIZE_SOL = 0.05  # Maximum position size in SOL
-MAX_ORDER_SIZE_SOL = 0.02  # Maximum order size in SOL
-TX_SLEEP = 15  # Sleep between transactions (seconds)
+POSITION_SIZE_SOL = 0.02  # Maximum position size in SOL (2% of balance)
+MIN_TRADE_SIZE_SOL = 0.001  # Minimum trade size in SOL
+MAX_ORDER_SIZE_SOL = 0.01  # Maximum order size in SOL (1% of balance)
+USE_SOL_FOR_TRADING = True  # Use SOL instead of USDC for trading
 SLIPPAGE = 250  # 250 = 2.5% slippage for optimal execution
 PRIORITY_FEE = 100000  # ~0.02 USD at current SOL prices
-ORDERS_PER_OPEN = 2  # Multiple orders for better fill rates
 MAX_RETRIES = 3  # Maximum retry attempts for failed transactions
 
 # Risk Management Settings
 MIN_SOL_BALANCE = 0.05  # Minimum SOL balance required for trading
+MIN_USDC_BALANCE = 1.0  # Minimum USDC balance required for trading
+CREATE_ATA_IF_MISSING = True  # Auto-create token accounts if missing
 CASH_PERCENTAGE = 30  # Minimum % to keep in SOL as safety buffer
 MAX_POSITION_PERCENTAGE = 20  # Maximum % allocation per position
 MAX_LOSS_PERCENTAGE = 5  # Maximum loss percentage per trade
