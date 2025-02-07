@@ -64,7 +64,7 @@ def monitor_trading_metrics():
     except Exception as e:
         cprint(f"❌ Fatal error in monitoring: {str(e)}", "red")
 
-def verify_trading(duration_minutes=5, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"):
+def verify_trading(duration_minutes=120, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"):
     start_time = datetime.now()
     end_time = start_time + timedelta(minutes=duration_minutes)
     

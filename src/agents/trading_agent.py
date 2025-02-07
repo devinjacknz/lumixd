@@ -28,7 +28,10 @@ from src.config import (
     MIN_SOL_BALANCE,
     MIN_USDC_BALANCE,
     CREATE_ATA_IF_MISSING,
-    USDC_ADDRESS
+    USDC_ADDRESS,
+    USE_SOL_FOR_TRADING,
+    MIN_TRADE_SIZE_SOL,
+    MAX_ORDER_SIZE_SOL
 )
 
 # Load token list
@@ -221,11 +224,19 @@ class TradingAgent:
         try:
             # Check SOL balance
             client = ChainStackClient()
-            sol_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
-            if sol_balance < MIN_SOL_BALANCE:
+            wallet_address = os.getenv("WALLET_ADDRESS")
+            if not wallet_address:
+                return False, "Wallet address not set"
+            sol_balance = client.get_wallet_balance(wallet_address)
+            if not sol_balance or sol_balance < MIN_SOL_BALANCE:
                 return False, f"Insufficient SOL balance: {sol_balance}"
                 
-            # Check USDC balance
+            if USE_SOL_FOR_TRADING:
+                if sol_balance < MIN_TRADE_SIZE_SOL + MIN_SOL_BALANCE:
+                    return False, f"Insufficient SOL for trading: {sol_balance}"
+                return True, "Sufficient SOL balance"
+                
+            # Check USDC balance if not using SOL
             usdc_balance = float(client.get_token_balance(USDC_ADDRESS) or 0)
             if usdc_balance < MIN_USDC_BALANCE:
                 if CREATE_ATA_IF_MISSING:
@@ -257,12 +268,14 @@ class TradingAgent:
                 return False
                 
             jupiter = JupiterClient()
-            jupiter.slippage_bps = int(self.slippage * 100)
+            jupiter.slippage_bps = SLIPPAGE
             
+            # Calculate SOL amount for trade
+            trade_amount = min(amount, MAX_ORDER_SIZE_SOL)
             if direction == 'BUY':
-                success = market_buy(str(token), amount, int(self.slippage * 100))
+                success = market_buy(str(token), trade_amount, SLIPPAGE)
             elif direction == 'SELL':
-                success = market_sell(str(token), amount, int(self.slippage * 100))
+                success = market_sell(str(token), trade_amount, SLIPPAGE)
             else:
                 return False
                 

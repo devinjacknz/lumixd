@@ -26,12 +26,12 @@ WALLET_ADDRESS = "4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"  # Trading walle
 DEFAULT_SYMBOL = '9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump'
 
 # Position Sizing and Trading Parameters
-POSITION_SIZE_SOL = 0.05  # Maximum position size in SOL
-MAX_ORDER_SIZE_SOL = 0.02  # Maximum order size in SOL
-TX_SLEEP = 15  # Sleep between transactions (seconds)
+POSITION_SIZE_SOL = 0.02  # Maximum position size in SOL (2% of balance)
+MIN_TRADE_SIZE_SOL = 0.001  # Minimum trade size in SOL
+MAX_ORDER_SIZE_SOL = 0.01  # Maximum order size in SOL (1% of balance)
+USE_SOL_FOR_TRADING = True  # Use SOL instead of USDC for trading
 SLIPPAGE = 250  # 250 = 2.5% slippage for optimal execution
 PRIORITY_FEE = 100000  # ~0.02 USD at current SOL prices
-ORDERS_PER_OPEN = 2  # Multiple orders for better fill rates
 MAX_RETRIES = 3  # Maximum retry attempts for failed transactions
 
 # Risk Management Settings
