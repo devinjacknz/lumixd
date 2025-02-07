@@ -23,7 +23,11 @@ from src.config import (
     USDC_SIZE,
     MAX_LOSS_PERCENTAGE,
     SLIPPAGE,
-    TRADING_INTERVAL
+    TRADING_INTERVAL,
+    MIN_SOL_BALANCE,
+    MIN_USDC_BALANCE,
+    CREATE_ATA_IF_MISSING,
+    USDC_ADDRESS
 )
 
 # Load token list
@@ -211,6 +215,28 @@ class TradingAgent:
                 'metadata': {}
             }
             
+    def check_balances(self) -> tuple[bool, str]:
+        """Check if wallet has sufficient balances"""
+        try:
+            # Check SOL balance
+            client = ChainStackClient()
+            sol_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
+            if sol_balance < MIN_SOL_BALANCE:
+                return False, f"Insufficient SOL balance: {sol_balance}"
+                
+            # Check USDC balance
+            usdc_balance = float(client.get_token_balance(USDC_ADDRESS) or 0)
+            if usdc_balance < MIN_USDC_BALANCE:
+                if CREATE_ATA_IF_MISSING:
+                    jupiter = JupiterClient()
+                    if jupiter.create_token_account(USDC_ADDRESS, os.getenv("WALLET_ADDRESS")):
+                        return True, "Created USDC token account"
+                return False, f"Insufficient USDC balance: {usdc_balance}"
+                
+            return True, "Sufficient balances"
+        except Exception as e:
+            return False, f"Error checking balances: {str(e)}"
+
     def execute_trade(self, token: str | None, direction: str, amount: float) -> bool:
         """Execute trade based on signal"""
         try:
