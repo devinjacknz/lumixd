@@ -18,6 +18,7 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
 2. Install Python dependencies:
    ```bash
    pip install -r requirements.txt
+   pip install twikit==2.3.2  # Required for Twitter sentiment analysis
    ```
 
 3. Configure environment variables:
@@ -26,11 +27,18 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
    ```
    Required variables:
    - `RPC_ENDPOINT`: Chainstack RPC endpoint (https://solana-mainnet.core.chainstack.com/YOUR_KEY)
+     - Sign up at https://chainstack.com
+     - Create a new Solana node
+     - Copy the RPC endpoint URL
    - `SOLANA_PRIVATE_KEY`: Your Solana wallet private key (base58 format)
-   - `DEEPSEEK_KEY`: Required for AI model
+     - Ensure wallet has sufficient SOL for transaction fees
+     - Minimum recommended balance: 0.1 SOL
+   - `DEEPSEEK_KEY`: Required for AI model (obtain from DeepSeek dashboard)
    - `TWITTER_USERNAME`: Twitter account username for sentiment analysis
    - `TWITTER_PASSWORD`: Twitter account password
    - `TWITTER_EMAIL`: Twitter account email
+     - Twitter credentials used for real-time sentiment analysis
+     - Ensure account has API access enabled
 
 4. Install and configure Ollama:
    ```bash
@@ -47,19 +55,35 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
 
 ## Running the System 运行系统
 
-1. Start the trading system:
+1. Verify environment setup:
    ```bash
-   python src/main.py
+   # Check environment configuration
+   python src/scripts/verify_env.py
+   
+   # Ensure Ollama server is running
+   curl http://localhost:11434/api/tags
    ```
 
-2. Monitor trading activity:
+2. Start the trading system:
+   ```bash
+   # Set Python path and start main system
+   PYTHONPATH=/home/ubuntu/repos/lumixd python src/main.py
+   ```
+
+3. Monitor trading activity (in separate terminals):
    ```bash
    # Monitor real-time transactions
-   python src/scripts/monitor_trading.py
+   PYTHONPATH=/home/ubuntu/repos/lumixd python src/scripts/monitor_trading.py
 
    # Verify trading correctness
-   python src/scripts/verify_trading.py
+   PYTHONPATH=/home/ubuntu/repos/lumixd python src/scripts/verify_trading.py
    ```
+
+4. Verify system operation:
+   - Check Solscan for transactions: https://solscan.io/account/4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5
+   - Monitor Twitter sentiment analysis output
+   - Verify Chainstack RPC connectivity
+   - Check agent status in logs
 
 ## Trading Parameters 交易参数
 

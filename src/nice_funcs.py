@@ -173,7 +173,7 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
             input_mint=USDC_ADDRESS,
             output_mint=token,
             amount=int(amount),
-            slippage_bps=int(SLIPPAGE)
+            slippage=int(SLIPPAGE)
         )
         if not quote:
             return False
@@ -204,7 +204,7 @@ def market_sell(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
             input_mint=token,
             output_mint=USDC_ADDRESS,
             amount=int(amount),
-            slippage_bps=int(SLIPPAGE)
+            slippage=int(SLIPPAGE)
         )
         if not quote:
             return False
