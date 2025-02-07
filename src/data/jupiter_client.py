@@ -89,14 +89,15 @@ class JupiterClient:
                 }
             )
             response.raise_for_status()
-            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
-            if not blockhash:
+            blockhash_data = response.json().get("result", {}).get("value", {})
+            if not blockhash_data or "blockhash" not in blockhash_data:
                 return None
                 
             # Sign and send transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             tx = Transaction.from_bytes(base64.b64decode(unsigned_tx))
-            tx.sign([wallet_key], blockhash)
+            tx.recent_blockhash = blockhash_data["blockhash"]
+            tx.sign([wallet_key])
             
             # Submit transaction
             response = requests.post(
