@@ -158,7 +158,7 @@ def token_creation_info(address):
         cprint(f"✨ Error getting token creation info: {str(e)}", "red")
         return None
 
-def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
+def market_buy(token: str, amount: float, slippage_basis_points: int = SLIPPAGE) -> bool:
     """Execute a market buy order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -173,7 +173,7 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
             input_mint=USDC_ADDRESS,
             output_mint=token,
             amount=int(amount),
-            slippage=int(SLIPPAGE)
+            slippage_basis_points=slippage_basis_points
         )
         if not quote:
             return False
@@ -189,7 +189,7 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
         cprint(f"❌ Market buy failed: {str(e)}", "red")
         return False
 
-def market_sell(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
+def market_sell(token: str, amount: float, slippage_basis_points: int = SLIPPAGE) -> bool:
     """Execute a market sell order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -204,7 +204,7 @@ def market_sell(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
             input_mint=token,
             output_mint=USDC_ADDRESS,
             amount=int(amount),
-            slippage=int(SLIPPAGE)
+            slippage_basis_points=slippage_basis_points
         )
         if not quote:
             return False
