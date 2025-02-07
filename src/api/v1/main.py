@@ -25,7 +25,7 @@ def get_balance_manager():
 app.dependency_overrides[instances.get_instance_manager] = get_instance_manager
 app.dependency_overrides[instances.get_balance_manager] = get_balance_manager
 
-app.add_middleware(RateLimitMiddleware, max_requests=5, window_seconds=1)
+# Rate limiting is now handled at the route level
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

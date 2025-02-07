@@ -2,6 +2,26 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Optional, Callable
 from datetime import datetime
 from decimal import Decimal
+import time
+from collections import defaultdict
+
+# Rate limiting
+request_times: Dict[str, List[float]] = defaultdict(list)
+MAX_REQUESTS = 5
+WINDOW_SECONDS = 1
+
+def check_rate_limit(instance_id: str) -> None:
+    now = time.time()
+    request_times[instance_id] = [
+        req_time for req_time in request_times[instance_id]
+        if now - req_time < WINDOW_SECONDS
+    ]
+    if len(request_times[instance_id]) >= MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Maximum {MAX_REQUESTS} requests per {WINDOW_SECONDS} second(s)"
+        )
+    request_times[instance_id].append(now)
 from src.services.instance_manager import InstanceManager
 from src.services.balance_manager import BalanceManager
 from src.api.v1.models.trading_instance import (
@@ -30,6 +50,7 @@ async def create_instance(
     instance_manager: InstanceManager = Depends(get_instance_manager),
     balance_manager: BalanceManager = Depends(get_balance_manager)
 ):
+    check_rate_limit("global")
     if instance.strategy_id and instance.strategy_id not in strategies_db:
         raise HTTPException(status_code=404, detail="Strategy not found")
         
@@ -90,6 +111,7 @@ async def update_instance(
     instance_manager: InstanceManager = Depends(get_instance_manager),
     balance_manager: BalanceManager = Depends(get_balance_manager)
 ):
+    check_rate_limit(instance_id)
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Trading instance not found")
         
@@ -123,6 +145,7 @@ async def toggle_instance(
     instance_id: str,
     instance_manager: InstanceManager = Depends(get_instance_manager)
 ):
+    check_rate_limit(instance_id)
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Trading instance not found")
         
@@ -145,6 +168,7 @@ async def execute_instance_trade(
     trade: TradeRequest,
     instance_manager: InstanceManager = Depends(get_instance_manager)
 ):
+    check_rate_limit(instance_id)
     if instance_id not in instances_db:
         raise HTTPException(status_code=404, detail="Instance not found")
         
