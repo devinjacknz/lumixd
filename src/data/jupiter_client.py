@@ -62,7 +62,7 @@ class JupiterClient:
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
                 "computeUnitPriceMicroLamports": 10000,
-                "asLegacyTransaction": True
+                "asLegacyTransaction": False
             }
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
@@ -88,8 +88,9 @@ class JupiterClient:
                 return None
                 
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            message = Message.from_bytes(base64.b64decode(unsigned_tx))
-            tx = Transaction([wallet_key], message, Hash.from_string(blockhash_data["blockhash"]))
+            tx_bytes = base64.b64decode(unsigned_tx)
+            tx = Transaction.from_bytes(tx_bytes)
+            tx.sign([wallet_key])
             
             response = requests.post(
                 self.rpc_url,
