@@ -62,7 +62,7 @@ class JupiterClient:
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
                 "computeUnitPriceMicroLamports": 10000,
-                "asLegacyTransaction": False
+                "asLegacyTransaction": True
             }
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
@@ -90,8 +90,7 @@ class JupiterClient:
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             tx_bytes = base64.b64decode(unsigned_tx)
             tx = Transaction.from_bytes(tx_bytes)
-            blockhash = Hash.from_string(blockhash_data["blockhash"])
-            tx.sign([wallet_key], blockhash)
+            tx.sign([wallet_key], Hash.from_string(blockhash_data["blockhash"]))
             
             response = requests.post(
                 self.rpc_url,
@@ -99,7 +98,7 @@ class JupiterClient:
                 json={
                     "jsonrpc": "2.0",
                     "id": "submit-tx",
-                    "method": "sendTransaction",
+                    "method": "sendRawTransaction",
                     "params": [
                         base64.b64encode(bytes(tx)).decode('utf-8'),
                         {"encoding": "base64", "maxRetries": 3}
@@ -207,7 +206,7 @@ class JupiterClient:
                 json={
                     "jsonrpc": "2.0",
                     "id": "send-tx",
-                    "method": "sendTransaction",
+                    "method": "sendRawTransaction",
                     "params": [
                         base64.b64encode(bytes(tx)).decode('utf-8'),
                         {"encoding": "base64", "maxRetries": 3}
