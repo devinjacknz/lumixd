@@ -361,8 +361,16 @@ class SentimentAgent(BaseAgent):
         
         message += "."
         
-        # Announce with voice if sentiment is significant or if there's a big change
-        should_announce = bool(abs(sentiment_score) > SENTIMENT_ANNOUNCE_THRESHOLD or (percent_change is not None and abs(percent_change) > 5))
+        # Get market volatility from trading agent
+        from src.agents.trading_agent import TradingAgent
+        trading_agent = TradingAgent()
+        volatility = trading_agent.calculate_volatility("SOL")  # Use SOL as market indicator
+        
+        # Calculate dynamic threshold
+        dynamic_threshold = self.calculate_dynamic_threshold(volatility)
+        
+        # Announce with voice if sentiment exceeds dynamic threshold or if there's a big change
+        should_announce = bool(abs(sentiment_score) > dynamic_threshold or (percent_change is not None and abs(percent_change) > 5))
         self._announce(message, should_announce)
         
         # If not announcing vocally, print the raw score for debugging
@@ -500,6 +508,12 @@ class SentimentAgent(BaseAgent):
         except Exception as e:
             cprint(f"Error getting sentiment time: {e}", "red")
             return datetime.min
+
+    def calculate_dynamic_threshold(self, volatility: float) -> float:
+        """Calculate dynamic sentiment threshold based on market volatility"""
+        base = 0.6
+        adj = base * (1 + volatility/20)
+        return max(min(adj, 0.85), 0.4)  # Threshold range [0.4, 0.85]
 
     def run(self):
         """Main function to run sentiment analysis (implements BaseAgent interface)"""
