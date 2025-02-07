@@ -64,9 +64,9 @@ def monitor_trading_metrics():
     except Exception as e:
         cprint(f"❌ Fatal error in monitoring: {str(e)}", "red")
 
-def verify_trading(duration_hours=2, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"):
+def verify_trading(duration_minutes=5, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"):
     start_time = datetime.now()
-    end_time = start_time + timedelta(hours=duration_hours)
+    end_time = start_time + timedelta(minutes=duration_minutes)
     
     cprint(f"\n🔍 Starting trading verification for {wallet_address}", "cyan")
     cprint(f"📅 Verifying from {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n", "cyan")
@@ -74,6 +74,12 @@ def verify_trading(duration_hours=2, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmb
     client = ChainStackClient()
     trades_verified = 0
     total_volume = 0
+    
+    # Verify USDC ATA and balances
+    from src.agents.trading_agent import TradingAgent
+    agent = TradingAgent()
+    balances_ok, reason = agent.check_balances()
+    cprint(f"\n💰 Balance check: {'✅' if balances_ok else '❌'} {reason}", "green" if balances_ok else "red")
     
     while datetime.now() < end_time:
         try:
@@ -138,10 +144,19 @@ def verify_trading(duration_hours=2, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmb
             cprint(f"❌ Error verifying trades: {e}", "red")
             time.sleep(10)
     
+    # Check transaction logs
+    log_file = f"logs/transactions_{datetime.now().strftime('%Y%m%d')}.log"
+    if os.path.exists(log_file):
+        with open(log_file) as f:
+            logs = f.read()
+            cprint(f"\n📝 Transaction logs found: {len(logs.split('\\n'))} entries", "green")
+    else:
+        cprint("\n⚠️ No transaction logs found", "yellow")
+    
     cprint("\n📊 Trading Verification Summary:", "cyan")
     cprint(f"✅ Verified Trades: {trades_verified}", "green")
     cprint(f"💰 Total Volume: {total_volume:.2f} USDC", "green")
-    cprint(f"⏱️ Duration: {duration_hours} hours", "cyan")
+    cprint(f"⏱️ Duration: {duration_minutes} minutes", "cyan")
     cprint(f"🔍 Monitored from {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "cyan")
 
 if __name__ == "__main__":
