@@ -105,7 +105,7 @@ class JupiterClient:
                 json={
                     "jsonrpc": "2.0",
                     "id": "submit-tx",
-                    "method": "sendRawTransaction",
+                    "method": "sendTransaction",
                     "params": [
                         signed_tx,
                         {"encoding": "base64", "maxRetries": 3}
@@ -221,7 +221,7 @@ class JupiterClient:
                 json={
                     "jsonrpc": "2.0",
                     "id": "send-tx",
-                    "method": "sendRawTransaction",
+                    "method": "sendTransaction",
                     "params": [
                         base64.b64encode(bytes(tx)).decode('utf-8'),
                         {"encoding": "base64", "maxRetries": 3}
