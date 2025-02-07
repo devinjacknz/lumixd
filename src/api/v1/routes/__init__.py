@@ -1,1 +1,1 @@
-from . import trades, strategies, config, monitor
+from . import trades, strategies, config, monitor, instances

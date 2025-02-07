@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.api.v1.routes import trades, strategies, config, monitor
+from src.api.v1.routes import trades, strategies, config, monitor, instances
 
 app = FastAPI(
     title="Lumix Trading API",
-    description="Multi-agent trading system with custom strategy support",
+    description="Multi-agent trading system with multiple trading instances and custom strategies",
     version="1.0.0"
 )
 
@@ -20,6 +20,7 @@ app.include_router(trades.router, prefix="/api/v1/trades", tags=["trades"])
 app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strategies"])
 app.include_router(config.router, prefix="/api/v1/config", tags=["config"])
 app.include_router(monitor.router, prefix="/api/v1/monitor", tags=["monitor"])
+app.include_router(instances.router, prefix="/api/v1/instances", tags=["instances"])
 
 @app.get("/")
 async def root():
