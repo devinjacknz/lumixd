@@ -65,9 +65,7 @@ class JupiterClient:
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
                 "computeUnitPriceMicroLamports": 1000,
-                "asLegacyTransaction": False,
-                "useSharedAccounts": True,
-                "dynamicComputeUnitLimit": True
+                "asLegacyTransaction": True
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
@@ -117,8 +115,7 @@ class JupiterClient:
                             "encoding": "base64",
                             "maxRetries": 3,
                             "skipPreflight": True,
-                            "preflightCommitment": "finalized",
-                            "minContextSlot": quote_response.get("contextSlot")
+                            "preflightCommitment": "finalized"
                         }
                     ]
                 }
