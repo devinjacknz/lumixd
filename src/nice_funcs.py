@@ -174,10 +174,11 @@ def market_buy(token: str, amount: float, slippage: int = SLIPPAGE) -> bool:
         # Get quote using SOL or USDC as input
         input_mint = SOL_ADDRESS if USE_SOL_FOR_TRADING else USDC_ADDRESS
         input_decimals = 9 if USE_SOL_FOR_TRADING else 6
+        lamports = int(amount * (10 ** input_decimals))
         quote = jupiter.get_quote(
             input_mint=input_mint,
             output_mint=token,
-            amount=int(amount * 10**input_decimals)
+            amount=lamports
         )
         if not quote:
             return False
