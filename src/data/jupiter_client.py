@@ -9,6 +9,7 @@ from termcolor import cprint
 from solders.keypair import Keypair
 from solders.transaction import Transaction
 from solders.hash import Hash
+from solders.message import Message
 from dotenv import load_dotenv
 
 os.makedirs("logs", exist_ok=True)
@@ -43,11 +44,15 @@ class JupiterClient:
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250
+                "slippageBps": 250,
+                "platformFeeBps": 0
             }
+            cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
             response.raise_for_status()
-            return response.json()
+            quote = response.json()
+            cprint(f"✅ Got quote: {json.dumps(quote, indent=2)}", "green")
+            return quote
         except Exception as e:
             cprint(f"❌ Failed to get quote: {str(e)}", "red")
             return None
@@ -60,15 +65,19 @@ class JupiterClient:
                 "quoteResponse": quote_response,
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
-                "computeUnitPriceMicroLamports": 10000,
-                "asLegacyTransaction": True
+                "computeUnitPriceMicroLamports": 1000,
+                "asLegacyTransaction": True,
+                "useSharedAccounts": True,
+                "dynamicComputeUnitLimit": True
             }
+            cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
             data = response.json()
             
             unsigned_tx = data.get("swapTransaction")
             if not unsigned_tx:
+                cprint("❌ No swap transaction received", "red")
                 return None
                 
             response = requests.post(
@@ -78,18 +87,23 @@ class JupiterClient:
                     "jsonrpc": "2.0",
                     "id": "get-blockhash",
                     "method": "getLatestBlockhash",
-                    "params": []
+                    "params": [{"commitment": "finalized"}]
                 }
             )
             response.raise_for_status()
             blockhash_data = response.json().get("result", {}).get("value", {})
             if not blockhash_data or "blockhash" not in blockhash_data:
+                cprint("❌ Failed to get blockhash", "red")
                 return None
                 
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx = Transaction.from_bytes(base64.b64decode(unsigned_tx))
+            tx_bytes = base64.b64decode(unsigned_tx)
+            tx = Transaction.from_bytes(tx_bytes)
             blockhash = Hash.from_string(blockhash_data["blockhash"])
             tx.sign([wallet_key], blockhash)
+            
+            signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
+            cprint(f"📝 Signed transaction: {signed_tx[:64]}...", "cyan")
             
             response = requests.post(
                 self.rpc_url,
@@ -99,15 +113,29 @@ class JupiterClient:
                     "id": "submit-tx",
                     "method": "sendTransaction",
                     "params": [
-                        base64.b64encode(bytes(tx)).decode('utf-8'),
-                        {"encoding": "base64", "maxRetries": 3}
+                        signed_tx,
+                        {
+                            "encoding": "base64",
+                            "maxRetries": 3,
+                            "skipPreflight": True,
+                            "preflightCommitment": "finalized",
+                            "minContextSlot": quote_response.get("contextSlot")
+                        }
                     ]
                 }
             )
             response.raise_for_status()
             data = response.json()
-            signature = data.get("result")
             
+            if "error" in data:
+                cprint(f"❌ RPC error: {json.dumps(data['error'], indent=2)}", "red")
+                return None
+                
+            signature = data.get("result")
+            if not signature:
+                cprint("❌ No transaction signature received", "red")
+                return None
+                
             if signature and self.monitor_transaction(signature):
                 return signature
             return None
@@ -208,7 +236,12 @@ class JupiterClient:
                     "method": "sendTransaction",
                     "params": [
                         base64.b64encode(bytes(tx)).decode('utf-8'),
-                        {"encoding": "base64", "maxRetries": 3}
+                        {
+                            "encoding": "base64",
+                            "maxRetries": 3,
+                            "skipPreflight": True,
+                            "preflightCommitment": "finalized"
+                        }
                     ]
                 }
             )
@@ -229,7 +262,7 @@ class JupiterClient:
         except Exception as e:
             cprint(f"❌ Failed to log transaction: {str(e)}", "red")
 
-    def monitor_transaction(self, signature: str, max_retries: int = 5) -> bool:
+    def monitor_transaction(self, signature: str, max_retries: int = 10) -> bool:
         try:
             retry_count = 0
             delay = 1.0
@@ -243,7 +276,7 @@ class JupiterClient:
                         "jsonrpc": "2.0",
                         "id": "get-tx-status",
                         "method": "getSignatureStatuses",
-                        "params": [[signature]]
+                        "params": [[signature], {"searchTransactionHistory": True}]
                     }
                 )
                 response.raise_for_status()
@@ -261,7 +294,7 @@ class JupiterClient:
                 retry_count += 1
                 if retry_count < max_retries:
                     time.sleep(delay)
-                    delay *= 2
+                    delay *= 1.5
                 
             cprint(f"❌ Transaction {signature[:8]}... timed out after {max_retries} retries", "red")
             return False
