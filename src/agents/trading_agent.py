@@ -259,7 +259,8 @@ class TradingAgent:
             
             # Calculate SOL amount for trade
             trade_amount = min(amount, MAX_ORDER_SIZE_SOL)
-            start_balance = self.client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
+            client = ChainStackClient()
+            start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
             
             if direction == 'BUY':
                 success = market_buy(str(token), trade_amount, SLIPPAGE)
@@ -269,7 +270,7 @@ class TradingAgent:
                 return False
                 
             if success:
-                end_balance = self.client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
+                end_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
                 gas_cost = start_balance - end_balance - (trade_amount if direction == 'SELL' else 0)
                 self.performance_monitor.log_trade_metrics({
                     'token': token,
