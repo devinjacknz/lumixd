@@ -35,15 +35,22 @@ class JupiterClient:
             time.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    def get_quote(self, input_mint: str, output_mint: str, amount: int) -> Optional[Dict]:
+    def get_quote(self, input_mint: str, output_mint: str, amount: float) -> Optional[Dict]:
         """Get quote for token swap"""
         try:
             self._rate_limit()
             url = f"{self.base_url}/quote"
+            
+            # Convert amount to proper decimal places
+            if input_mint == "So11111111111111111111111111111111112":  # SOL
+                amount = int(amount * 1e9)  # 9 decimals for SOL
+            else:
+                amount = int(amount * 1e6)  # 6 decimals for other tokens
+                
             params = {
                 "inputMint": input_mint,
                 "outputMint": output_mint,
-                "amount": amount,
+                "amount": str(amount),  # Convert to string to avoid integer overflow
                 "slippageBps": self.slippage_bps,
                 "maxAccounts": 54
             }
