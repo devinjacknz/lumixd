@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from src.monitoring.system_monitor import SystemMonitor
 from src.monitoring.performance_monitor import PerformanceMonitor
 
