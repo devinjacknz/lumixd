@@ -79,7 +79,7 @@ class JupiterClient:
                 
             # Sign and send transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx = Transaction.from_bytes(bytes.fromhex(unsigned_tx))
+            tx = Transaction.from_bytes(base64.b64decode(unsigned_tx))
             tx.sign([wallet_key])
             
             # Submit transaction
