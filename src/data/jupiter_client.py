@@ -77,10 +77,26 @@ class JupiterClient:
             if not unsigned_tx:
                 return None
                 
+            # Get recent blockhash
+            response = requests.post(
+                self.rpc_url,
+                headers=self.headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "get-blockhash",
+                    "method": "getLatestBlockhash",
+                    "params": []
+                }
+            )
+            response.raise_for_status()
+            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
+            if not blockhash:
+                return None
+                
             # Sign and send transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             tx = Transaction.from_bytes(base64.b64decode(unsigned_tx))
-            tx.sign([wallet_key])
+            tx.sign([wallet_key], blockhash)
             
             # Submit transaction
             response = requests.post(
