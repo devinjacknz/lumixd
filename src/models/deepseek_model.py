@@ -10,12 +10,13 @@ class DeepSeekModel(BaseModel):
     """Implementation for DeepSeek's models"""
     
     AVAILABLE_MODELS = {
+        "deepseek-r1:1.5b": "DeepSeek R1 1.5B model",
         "deepseek-chat": "Fast chat model",
         "deepseek-coder": "Code-specialized model",
         "deepseek-reasoner": "Enhanced reasoning model"
     }
     
-    def __init__(self, api_key: str, model_name: str = "deepseek-chat", base_url: str = "https://api.deepseek.com", **kwargs):
+    def __init__(self, api_key: str = None, model_name: str = "deepseek-r1:1.5b", base_url: str = "https://api.deepseek.com/v3", **kwargs):
         self.model_name = model_name
         self.base_url = base_url
         super().__init__(api_key, **kwargs)
@@ -69,4 +70,4 @@ class DeepSeekModel(BaseModel):
     
     @property
     def model_type(self) -> str:
-        return "deepseek"  
+        return "deepseek"        
