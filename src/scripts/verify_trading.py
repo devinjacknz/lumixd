@@ -149,7 +149,8 @@ def verify_trading(duration_minutes=5, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJ
     if os.path.exists(log_file):
         with open(log_file) as f:
             logs = f.read()
-            cprint(f"\n📝 Transaction logs found: {len(logs.split('\\n'))} entries", "green")
+            log_entries = len([line for line in logs.splitlines() if line.strip()])
+            cprint(f"\n📝 Transaction logs found: {log_entries} entries", "green")
     else:
         cprint("\n⚠️ No transaction logs found", "yellow")
     
