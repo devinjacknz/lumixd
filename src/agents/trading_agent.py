@@ -74,6 +74,23 @@ class TradingAgent:
             default_analysis['reason'] = f'Error: {e}'
             return default_analysis
             
+    def detect_market_condition(self, token_data: dict) -> str:
+        """Detect if market is trending"""
+        try:
+            prices = token_data.get('prices', [])
+            if len(prices) < 20:
+                return 'unknown'
+                
+            # Calculate 20-period SMA
+            sma = sum(prices[-20:]) / 20
+            current_price = prices[-1]
+            
+            # If price is >2% away from SMA, consider trending
+            return 'trending' if abs(current_price - sma) / sma > 0.02 else 'ranging'
+        except Exception as e:
+            print(f"Error detecting market condition: {e}")
+            return 'unknown'
+            
     def calculate_signal_strength(self, strategy_signal: float, sentiment_score: float, volatility: float) -> float:
         """Calculate composite signal strength using multi-factor model"""
         return (0.6 * strategy_signal + 0.3 * sentiment_score + 0.1 * (1 - volatility))
@@ -135,11 +152,20 @@ class TradingAgent:
                 sentiment_score = float(token_data.get('sentiment_score', 0))
                 volatility = float(token_data.get('volatility', 0.2))
                 
-                signal_strength = self.calculate_signal_strength(
-                    strategy_signal,
-                    sentiment_score,
-                    volatility
-                )
+                # Adjust weights based on market condition
+                market_condition = self.detect_market_condition(token_data)
+                if market_condition == 'trending':
+                    signal_strength = self.calculate_signal_strength(
+                        strategy_signal * 1.2,  # Boost strategy signal in trends
+                        sentiment_score * 0.8,  # Reduce sentiment impact
+                        volatility
+                    )
+                else:
+                    signal_strength = self.calculate_signal_strength(
+                        strategy_signal,
+                        sentiment_score,
+                        volatility
+                    )
                 
                 # Execute trade if signal is strong enough
                 if signal_strength > 0.7 and analysis.get('action') != 'hold':
