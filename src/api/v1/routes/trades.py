@@ -83,23 +83,6 @@ async def execute_trade(trade: TradeRequest):
                     time.sleep(2 ** retries)  # Exponential backoff
                     
         raise HTTPException(status_code=500, detail=f"Failed after {trade.max_retries} retries: {last_error}")
-        if not quote:
-            raise HTTPException(status_code=400, detail="Failed to get quote")
-            
-        signature = jupiter_client.execute_swap(
-            quote,
-            get_env_var("WALLET_ADDRESS"),
-            use_shared_accounts=True
-        )
-        if not signature:
-            raise HTTPException(status_code=400, detail="Failed to execute trade")
-            
-        return TradeResponse(
-            transaction_signature=signature,
-            input_amount=float(quote["inAmount"]) / 1e9,
-            output_amount=float(quote["outAmount"]),
-            price_impact=float(quote.get("priceImpactPct", 0))
-        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
