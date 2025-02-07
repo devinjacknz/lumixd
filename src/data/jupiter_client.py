@@ -45,11 +45,14 @@ class JupiterClient:
                 "outputMint": output_mint,
                 "amount": amount,
                 "slippageBps": 250,
-                "onlyDirectRoutes": True
+                "platformFeeBps": 0
             }
+            cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
             response.raise_for_status()
-            return response.json()
+            quote = response.json()
+            cprint(f"✅ Got quote: {json.dumps(quote, indent=2)}", "green")
+            return quote
         except Exception as e:
             cprint(f"❌ Failed to get quote: {str(e)}", "red")
             return None
