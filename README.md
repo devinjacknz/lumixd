@@ -130,7 +130,27 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
 ## License
 MIT License
 
+## Multi-Instance Trading Support / 多实例交易支持
+
+The system supports running multiple trading instances simultaneously, each with its own strategy, token pairs, and balance allocation. See [Multi-Instance Guide](docs/multi_instance_guide.md) for details.
+
+Key features:
+- Independent trading strategies per instance
+- Isolated balance tracking
+- Custom risk parameters
+- Real-time performance monitoring
+- Instance-specific metrics
+
 ## API Documentation / API文档
+
+### Instance API / 实例API
+- POST /api/v1/instances/create - Create trading instance / 创建交易实例
+- GET /api/v1/instances/list - List all instances / 列出所有实例
+- GET /api/v1/instances/{id} - Get instance details / 获取实例详情
+- PUT /api/v1/instances/{id}/update - Update instance / 更新实例
+- POST /api/v1/instances/{id}/toggle - Toggle instance / 切换实例状态
+- GET /api/v1/instances/{id}/metrics - Get instance metrics / 获取实例指标
+- GET /api/v1/instances/{id}/performance - Get instance performance / 获取实例性能
 
 ### Trading API / 交易API
 - POST /api/v1/trades/execute - Execute trade / 执行交易
