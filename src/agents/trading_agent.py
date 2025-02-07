@@ -436,7 +436,8 @@ class TradingAgent:
                     try:
                         signal = self.generate_trading_signal(token)
                         if signal and signal['signal'] > 0.7:
-                            self.execute_trade(token, 'BUY', USDC_SIZE)
+                            # Use MIN_TRADE_SIZE_SOL for initial trades
+                            self.execute_trade(token, 'BUY', MIN_TRADE_SIZE_SOL)
                     except Exception as e:
                         print(f"Error trading {token}: {e}")
                         
