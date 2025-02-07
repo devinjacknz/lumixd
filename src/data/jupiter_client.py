@@ -46,14 +46,8 @@ class JupiterClient:
                 "amount": amount,
                 "slippageBps": 250,
                 "platformFeeBps": 0,
-                "useSharedAccounts": use_shared_accounts,
-                "forceSimplestRoute": True,
                 "onlyDirectRoutes": True,
-                "maxAccounts": 10,
-                "maxAccounts": 10,
-                "asLegacyTransaction": True,
-                "computeUnitPriceMicroLamports": 1000,
-                "skipUserAccountsCache": True
+                "maxAccounts": 10
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
@@ -75,11 +69,8 @@ class JupiterClient:
                 "wrapUnwrapSOL": True,
                 "computeUnitPriceMicroLamports": 1000,
                 "asLegacyTransaction": True,
-                "useSharedAccounts": True,
                 "maxRetries": 3,
-                "skipPreflight": True,
-                "maxAccounts": 10,
-                "onlyDirectRoutes": True
+                "skipPreflight": True
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
