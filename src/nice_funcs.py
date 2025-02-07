@@ -158,7 +158,7 @@ def token_creation_info(address):
         cprint(f"✨ Error getting token creation info: {str(e)}", "red")
         return None
 
-def market_buy(token: str, amount: float, slippage_bps: int = SLIPPAGE_BPS) -> bool:
+def market_buy(token: str, amount: float, slippage_bps: int = SLIPPAGE) -> bool:
     """Execute a market buy order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -189,7 +189,7 @@ def market_buy(token: str, amount: float, slippage_bps: int = SLIPPAGE_BPS) -> b
         cprint(f"❌ Market buy failed: {str(e)}", "red")
         return False
 
-def market_sell(token: str, amount: float, slippage_bps: int = SLIPPAGE_BPS) -> bool:
+def market_sell(token: str, amount: float, slippage_bps: int = SLIPPAGE) -> bool:
     """Execute a market sell order using Jupiter API"""
     try:
         # Initialize Jupiter client
@@ -527,7 +527,7 @@ def chunk_kill(token_mint_address, max_usd_order_size, slippage):
     
     try:
         # Get current position using address from config
-        df = fetch_wallet_token_single(address, token_mint_address)
+        df = fetch_wallet_token_single(WALLET_ADDRESS, token_mint_address)
         if df.empty:
             cprint("❌ No position found to exit", "white", "on_red")
             return
@@ -749,14 +749,14 @@ def elegant_entry(symbol, buy_under):
 
     print(f'chunk_size: {chunk_size}')
 
-    if pos_usd > (.97 * usd_size):
+    if pos_usd > (.97 * USDC_SIZE):
         print('position filled')
         time.sleep(10)
 
     # add debug prints for next while
     print(f'position: {round(pos,2)} price: {round(price,8)} pos_usd: ${round(pos_usd,2)}')
     print(f'buy_under: {buy_under}')
-    while pos_usd < (.97 * usd_size) and (price < buy_under):
+    while pos_usd < (.97 * USDC_SIZE) and (price < buy_under):
 
         print(f'position: {round(pos,2)} price: {round(price,8)} pos_usd: ${round(pos_usd,2)}')
 
