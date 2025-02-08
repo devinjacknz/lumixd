@@ -635,6 +635,50 @@ class TradingAgent(BaseAgent):
         self.active = not self.active
         return self.active
         
+    async def execute_small_trades_sequence(self, token_address: str, trade_count: int = 4) -> List[dict]:
+        """Execute a sequence of small trades for a token"""
+        results = []
+        trade_size = 0.01  # Small trade size in SOL
+        
+        for i in range(trade_count):
+            # Alternate between buy and sell
+            direction = 'buy' if i % 2 == 0 else 'sell'
+            
+            trade_request = {
+                'token': token_address,
+                'amount': trade_size,
+                'direction': direction,
+                'slippage_bps': 250  # 2.5% slippage
+            }
+            
+            try:
+                signature = await self.execute_trade(trade_request)
+                result = {
+                    'status': 'success' if signature else 'failed',
+                    'signature': signature,
+                    'direction': direction,
+                    'amount': trade_size
+                }
+                results.append(result)
+                
+                if signature:
+                    # Wait between trades
+                    await asyncio.sleep(2.0)
+                else:
+                    # Wait longer if trade failed
+                    await asyncio.sleep(5.0)
+                    
+            except Exception as e:
+                results.append({
+                    'status': 'error',
+                    'error': str(e),
+                    'direction': direction,
+                    'amount': trade_size
+                })
+                await asyncio.sleep(5.0)
+                
+        return results
+        
     async def execute_dialogue_trade(self, dialogue_input: str) -> dict:
         """Execute trade based on dialogue input with bilingual support"""
         try:
