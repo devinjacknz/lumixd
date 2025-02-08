@@ -1,6 +1,20 @@
-# Lumix AI Trading System 🤖
+# Lumix DeFi Agent Dialogue Platform 🤖💬
 
-A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for Solana trading, with AI-driven decision making using the DeepSeek R1 1.5B model.
+An intelligent dialogue platform for DeFi interactions, powered by DeepSeek R1 1.5B model. The system enables natural language conversations for Solana DeFi operations through Jupiter V6 Swap API and Chainstack RPC, combining AI-driven decision making with secure trading execution.
+
+## Dialogue System Features
+
+### Natural Language Trading
+- Conversational interface for DeFi operations
+- Context-aware trading suggestions
+- Risk assessment through dialogue
+- Multi-language support (English/中文)
+
+### AI Agent Capabilities
+- Market analysis through natural dialogue
+- Position management conversations
+- Strategy discussions and execution
+- Real-time market insights
 
 ## System Requirements
 - Python 3.12+
