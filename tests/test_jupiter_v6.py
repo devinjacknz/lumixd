@@ -45,16 +45,46 @@ async def test_jupiter_v6_trading():
     success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
     success_response.raise_for_status = AsyncMock()
     
-    # Create mock session
-    mock_session = AsyncMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-    
-    # Set up get method with proper context manager
-    mock_get_response = AsyncMock()
-    mock_get_response.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
-    mock_get_response.__aexit__ = AsyncMock(return_value=None)
-    mock_session.get = AsyncMock(return_value=mock_get_response)
+    # Create mock session class
+    class MockClientSession:
+        async def __aenter__(self):
+            return self
+            
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+            
+        async def get(self, *args, **kwargs):
+            class MockResponse:
+                async def __aenter__(self):
+                    if not hasattr(self, '_call_count'):
+                        self._call_count = 0
+                    self._call_count += 1
+                    if self._call_count <= 2:
+                        return error_response
+                    return success_response
+                    
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    return None
+                    
+            return MockResponse()
+            
+        async def post(self, *args, **kwargs):
+            class MockResponse:
+                async def __aenter__(self):
+                    if not hasattr(self, '_call_count'):
+                        self._call_count = 0
+                    self._call_count += 1
+                    if self._call_count == 1:
+                        return swap_error_response
+                    return swap_success_response
+                    
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    return None
+                    
+            return MockResponse()
+            
+    # Patch ClientSession with our mock
+    mock_session = MockClientSession()
     
     # Test get_quote with retry mechanism
     with patch('aiohttp.ClientSession', return_value=mock_session), \
@@ -106,18 +136,23 @@ async def test_jupiter_v6_trading():
         print("✅ execute_swap test passed with retry mechanism")
     
     # Test error handling
-    error_response = AsyncMock()
-    error_response.status = 500
-    error_response.json = AsyncMock(return_value={"error": "Internal server error"})
-    error_response.raise_for_status = AsyncMock(side_effect=Exception("Internal server error"))
-    
-    # Set up get method with proper context manager for error test
-    mock_error_response = AsyncMock()
-    mock_error_response.__aenter__ = AsyncMock(return_value=error_response)
-    mock_error_response.__aexit__ = AsyncMock(return_value=None)
-    
-    # Update session's get method for error test
-    mock_session.get = AsyncMock(return_value=mock_error_response)
+    class MockErrorClientSession(MockClientSession):
+        async def get(self, *args, **kwargs):
+            class MockResponse:
+                async def __aenter__(self):
+                    error_response = AsyncMock()
+                    error_response.status = 500
+                    error_response.json = AsyncMock(return_value={"error": "Internal server error"})
+                    error_response.raise_for_status = AsyncMock(side_effect=Exception("Internal server error"))
+                    return error_response
+                    
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    return None
+                    
+            return MockResponse()
+            
+    # Update session for error test
+    mock_session = MockErrorClientSession()
     
     with patch('aiohttp.ClientSession', return_value=mock_session):
         try:
