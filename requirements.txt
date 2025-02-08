@@ -19,6 +19,8 @@ websockets>=12.0
 PyQt6>=6.6.1
 qt-material>=2.14
 darkdetect>=0.8.0
-jupiter-py>=6.0.0
+# Jupiter API is used directly via HTTP requests
+# jupiter-py>=6.0.0 - not needed
 solders>=0.19.0
 apscheduler>=3.10.4
+requests==2.31.0
