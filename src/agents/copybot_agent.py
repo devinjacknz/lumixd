@@ -10,10 +10,21 @@ from termcolor import colored, cprint
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import time
-from src.config import *
+import asyncio
+from src.config.settings import TRADING_CONFIG
+
+# Extract config values
+EXCLUDED_TOKENS = [TRADING_CONFIG["tokens"]["USDC"], TRADING_CONFIG["tokens"]["SOL"]]
+AI_TEMPERATURE = 0.7  # Default temperature for AI model
+STRATEGY_MIN_CONFIDENCE = 60  # Minimum confidence threshold (60%)
+MAX_POSITION_PERCENTAGE = TRADING_CONFIG["risk_parameters"]["position_size_limit"] * 100
+tx_sleep = TRADING_CONFIG["trade_parameters"]["retry_delay_seconds"]
 from src import nice_funcs as n
 from src.data.ohlcv_collector import collect_all_tokens, collect_token_data
 from src.models import ModelFactory
+from src.data.chainstack_client import ChainStackClient
+from src.data.jupiter_client import JupiterClient
+from src.agents.base_agent import BaseAgent
 
 # Data path for current copybot portfolio
 COPYBOT_PORTFOLIO_PATH = os.path.join(
@@ -57,13 +68,19 @@ Remember:
 - Consider both position performance against others in the list and market conditions
 """
 
-class CopyBotAgent:
+class CopyBotAgent(BaseAgent):
     """CopyBot Agent for portfolio analysis"""
     
-    def __init__(self):
+    def __init__(self, agent_type: str = 'copybot', instance_id: str = 'main'):
         """Initialize the CopyBot agent with LLM"""
+        super().__init__(agent_type=agent_type, instance_id=instance_id)
         load_dotenv()
         self.model = None
+        self.chainstack_client = ChainStackClient()
+        self.jupiter_client = JupiterClient()
+        self.usd_size = 100.0  # Default USD size for trades
+        self.max_usd_order_size = 50.0  # Default max order size
+        self.slippage = 250  # Default slippage in bps (2.5%)
         max_retries = 3
         retry_count = 0
         
@@ -99,7 +116,7 @@ class CopyBotAgent:
             print(f"❌ Error loading portfolio data: {str(e)}")
             return False
             
-    def analyze_position(self, token):
+    async def analyze_position(self, token):
         """Analyze a single portfolio position"""
         try:
             if token in EXCLUDED_TOKENS:
@@ -205,7 +222,7 @@ class CopyBotAgent:
             print(f"❌ Error analyzing position: {str(e)}")
             return None
             
-    def execute_position_updates(self):
+    async def execute_position_updates(self):
         """Execute position size updates based on analysis"""
         try:
             print("\nExecuting position updates...")
@@ -227,11 +244,17 @@ class CopyBotAgent:
                 
                 try:
                     # Get current position value
-                    current_position = n.get_token_balance_usd(token)
+                    wallet_address = os.getenv("WALLET_ADDRESS", "")
+                    if not wallet_address:
+                        print("❌ No wallet address configured")
+                        return False
+                        
+                    current_position = await self.chainstack_client.get_token_balance(token, wallet_address)
+                    current_position = float(current_position) if current_position else 0.0
                     
                     if action == "BUY":
                         # Calculate position size based on confidence
-                        max_position = usd_size * (MAX_POSITION_PERCENTAGE / 100)
+                        max_position = self.usd_size * (MAX_POSITION_PERCENTAGE / 100)
                         target_size = max_position * (confidence / 100)
                         
                         print(f"💰 Current Position: ${current_position:.2f}")
@@ -247,9 +270,19 @@ class CopyBotAgent:
                         print(f"🛍️ Buying ${amount_to_buy:.2f} of {token}")
                         
                         # Execute the buy using nice_funcs
-                        success = n.ai_entry(
-                            token,
-                            amount_to_buy
+                        quote = await self.jupiter_client.get_quote(
+                            input_mint=TRADING_CONFIG["tokens"]["SOL"],
+                            output_mint=token,
+                            amount=str(int(amount_to_buy * 1e9))
+                        )
+                        if not quote:
+                            print("❌ Failed to get quote")
+                            return False
+                            
+                        success = await self.jupiter_client.execute_swap(
+                            quote_response=quote,
+                            wallet_pubkey=os.getenv("WALLET_ADDRESS", ""),
+                            use_shared_accounts=True
                         )
                         
                         if success:
@@ -262,10 +295,19 @@ class CopyBotAgent:
                             print(f"💰 Selling position worth ${current_position:.2f}")
                             
                             # Execute the sell using nice_funcs
-                            success = n.chunk_kill(
-                                token,
-                                max_usd_order_size,  # From config.py
-                                slippage  # From config.py
+                            quote = await self.jupiter_client.get_quote(
+                                input_mint=token,
+                                output_mint=TRADING_CONFIG["tokens"]["SOL"],
+                                amount=str(int(current_position * 1e9))
+                            )
+                            if not quote:
+                                print("❌ Failed to get quote")
+                                return False
+                                
+                            success = await self.jupiter_client.execute_swap(
+                                quote_response=quote,
+                                wallet_pubkey=os.getenv("WALLET_ADDRESS", ""),
+                                use_shared_accounts=True
                             )
                             
                             if success:
@@ -276,7 +318,7 @@ class CopyBotAgent:
                             print("ℹ️ No position to sell")
                     
                     # Sleep between trades
-                    time.sleep(tx_sleep)
+                    await asyncio.sleep(tx_sleep)
                     
                 except Exception as e:
                     print(f"❌ Error executing trade for {token}: {str(e)}")
@@ -285,7 +327,7 @@ class CopyBotAgent:
         except Exception as e:
             print(f"❌ Error updating positions: {str(e)}")
             
-    def run_analysis_cycle(self):
+    async def run_analysis_cycle(self):
         """Run a complete portfolio analysis cycle"""
         try:
             print("\nStarting CopyBot Portfolio Analysis...")
@@ -302,7 +344,7 @@ class CopyBotAgent:
             
             # Analyze each position
             for token in portfolio_tokens:
-                self.analyze_position(token)
+                await self.analyze_position(token)
                 
             # Print all recommendations
             if not self.recommendations_df.empty:
@@ -321,7 +363,7 @@ class CopyBotAgent:
                 print("=" * 80)
             
             # Execute position updates
-            self.execute_position_updates()
+            await self.execute_position_updates()
             
             print("\n✨ Portfolio analysis cycle complete!")
             
@@ -330,4 +372,4 @@ class CopyBotAgent:
 
 if __name__ == "__main__":
     analyzer = CopyBotAgent()
-    analyzer.run_analysis_cycle()
+    asyncio.run(analyzer.run_analysis_cycle())

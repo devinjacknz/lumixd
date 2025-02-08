@@ -6,6 +6,8 @@ Handles automated trading execution and analysis
 import os
 import sys
 import time
+import aiohttp
+import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
@@ -26,6 +28,7 @@ from src.data.chainstack_client import ChainStackClient
 from src.strategies.snap_strategy import SnapStrategy
 from src.monitoring.performance_monitor import PerformanceMonitor
 from src.monitoring.system_monitor import SystemMonitor
+from src.agents.base_agent import BaseAgent
 from src.agents.risk_agent import RiskAgent
 from src.agents.focus_agent import FocusAgent
 import json
@@ -59,13 +62,13 @@ from src.nice_funcs import (
 # Load environment variables
 load_dotenv()
 
-class TradingAgent:
-    def __init__(self, instance_id: str, model_type: str = "deepseek", model_name: str = "deepseek-r1:1.5b"):
-        self.instance_id = instance_id
+class TradingAgent(BaseAgent):
+    def __init__(self, agent_type: str = 'trading', instance_id: str = 'main', model_type: str = "deepseek-r1", model_name: str = "deepseek-r1:1.5b"):
+        super().__init__(agent_type=agent_type, instance_id=instance_id)
         self.model_type = model_type
         self.model_name = model_name
         self.model_factory = ModelFactory()
-        self.model = self.model_factory.get_model(self.model_type)
+        self.model = self.model_factory.get_model('ollama')  # Use ollama as the model provider
         self.min_trade_size = MIN_TRADE_SIZE_SOL
         self.max_position_size = 0.20
         self.cash_buffer = 0.30
@@ -174,7 +177,7 @@ class TradingAgent:
                 'slippage_bps': self.slippage,
                 'direction': 'sell'  # Partial positions are for selling
             }
-            signature = self.execute_trade(trade_request)
+            signature = await self.execute_trade(trade_request)
             
             if signature:
                 # Update position tracking
@@ -227,10 +230,12 @@ class TradingAgent:
     async def get_token_price(self, token: str) -> float:
         """Get token price in SOL"""
         try:
-            quote = self.jupiter_client.get_quote(
+            quote = await self.jupiter_client.get_quote(
                 input_mint=token,
                 output_mint=self.jupiter_client.sol_token,
-                amount="1000000000"  # 1 unit in smallest denomination
+                amount="1000000000",  # 1 unit in smallest denomination
+                use_shared_accounts=True,
+                force_simpler_route=True
             )
             if not quote:
                 return 0.0
@@ -357,8 +362,12 @@ class TradingAgent:
             usdc_balance = await self.chainstack_client.get_token_balance(USDC_ADDRESS, wallet_address)
             if not usdc_balance or float(usdc_balance) < MIN_USDC_BALANCE:
                 if CREATE_ATA_IF_MISSING:
-                    if await self.jupiter_client.create_token_account(USDC_ADDRESS, wallet_address):
-                        return True, "Created USDC token account"
+                    try:
+                        success = await self.jupiter_client.create_token_account(USDC_ADDRESS, wallet_address)
+                        if success:
+                            return True, "Created USDC token account"
+                    except Exception as e:
+                        return False, f"Failed to create token account: {str(e)}"
                 return False, f"Insufficient USDC balance: {usdc_balance}"
                 
             return True, "Sufficient balances"
@@ -367,11 +376,11 @@ class TradingAgent:
 
     async def execute_trade(self, trade_request: Dict[str, Any]) -> Optional[str]:
         """Execute trade based on trade request"""
-        if not self.active:
-            cprint(f"❌ Instance {self.instance_id} is not active", "red")
-            return None
-            
         try:
+            if not self.active:
+                cprint(f"❌ Instance {self.instance_id} is not active", "red")
+                return None
+                
             wallet_address = os.getenv("WALLET_ADDRESS")
             if not wallet_address:
                 cprint("❌ Trade failed: No wallet address configured", "red")
@@ -382,33 +391,35 @@ class TradingAgent:
                 return None
                 
             # Check balances first
-            balances_ok, reason = await self.check_balances()
-            if not balances_ok:
-                cprint(f"❌ Trade failed: {reason}", "red")
+            try:
+                # Get quote first to check if we can trade
+                quote = await self.jupiter_client.get_quote(
+                    input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
+                    output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
+                    amount=str(int(float(trade_request['amount']) * 1e9))  # Convert to lamports
+                )
+                if not quote:
+                    cprint(f"❌ Trade failed: Unable to get quote", "red")
+                    return None
+            except Exception as e:
+                cprint(f"❌ Trade failed: Error checking balance: {str(e)}", "red")
                 return None
                 
             # Get quote with optimized parameters
-            loop = asyncio.get_event_loop()
-            quote = await loop.run_in_executor(
-                None,
-                lambda: self.jupiter_client.get_quote(
-                    input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
-                    output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
-                    amount=str(int(float(trade_request['amount']) * 1e9))
-                )
+            quote = await self.jupiter_client.get_quote(
+                input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
+                output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
+                amount=str(int(float(trade_request['amount']) * 1e9))
             )
             if not quote:
                 cprint("❌ Failed to get quote", "red")
                 return None
                 
             # Execute swap
-            signature = await loop.run_in_executor(
-                None,
-                lambda: self.jupiter_client.execute_swap(
-                    quote_response=quote,
-                    wallet_pubkey=wallet_address,
-                    use_shared_accounts=True
-                )
+            signature = await self.jupiter_client.execute_swap(
+                quote_response=quote,
+                wallet_pubkey=wallet_address,
+                use_shared_accounts=True
             )
             
             if signature:
@@ -422,10 +433,7 @@ class TradingAgent:
                     'slippage': trade_request.get('slippage_bps', 250) / 100,
                     'success': True
                 }
-                await loop.run_in_executor(
-                    None,
-                    lambda: self.performance_monitor.log_trade_metrics(metrics)
-                )
+                await self.performance_monitor.log_trade_metrics(metrics)
                 self.total_trades += 1
                 self.successful_trades += 1
                 self.last_trade_time = datetime.now()
@@ -434,65 +442,6 @@ class TradingAgent:
                 if trade_request.get('direction') == 'buy':
                     current = self.positions.get(trade_request['token'], 0.0)
                     self.positions[trade_request['token']] = current + float(trade_request['amount'])
-                
-            return signature
-            
-        except Exception as e:
-            cprint(f"❌ Error executing trade: {str(e)}", "red")
-            return None
-                
-            # Get current positions and calculate total position value
-            positions_df = fetch_wallet_holdings_og(os.getenv("WALLET_ADDRESS", ""))
-            total_position = positions_df['USD Value'].sum()
-            max_trade_size = float(os.getenv("SOL_BALANCE", "0")) * self.max_position_size
-            
-            # Check if new trade would exceed max position size
-            if total_position + trade_request.get('amount_sol', 0) > max_trade_size:
-                cprint(f"❌ Trade would exceed max position size of {max_trade_size} SOL", "red")
-                return None
-                
-            jupiter = JupiterClient()
-            
-            # Calculate SOL amount for trade
-            trade_amount = min(trade_request.get('amount_sol', 0), MAX_ORDER_SIZE_SOL)
-            client = ChainStackClient()
-            start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
-            
-            # Get quote with optimized parameters
-            quote = self.jupiter_client.get_quote(
-                input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
-                output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
-                amount=str(int(float(trade_request['amount']) * 1e9))
-            )
-            if not quote:
-                cprint("❌ Failed to get quote", "red")
-                return None
-                
-            # Execute swap
-            if wallet_address:
-                signature = self.jupiter_client.execute_swap(
-                    quote_response=quote,
-                    wallet_pubkey=wallet_address,
-                    use_shared_accounts=True
-                )
-                
-            if signature:
-                end_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
-                gas_cost = start_balance - end_balance - trade_amount
-                metrics = {
-                    'instance_id': self.instance_id,
-                    'token': trade_request.get('output_token'),
-                    'direction': 'BUY',
-                    'amount': trade_amount,
-                    'execution_time': 0,  # Will be set by caller
-                    'slippage': trade_request.get('slippage_bps', 250) / 100,
-                    'gas_cost': gas_cost,
-                    'success': True
-                }
-                self.performance_monitor.log_trade_metrics(metrics)
-                self.total_trades += 1
-                self.successful_trades += 1
-                self.last_trade_time = datetime.now()
                 
             return signature
         except Exception as e:
@@ -584,7 +533,6 @@ class TradingAgent:
                 total_value += value
                 
             return total_volatility / total_value if total_value > 0 else 0.0
-            return float(values.std() / values.mean()) if values.mean() > 0 else 0
             
         except Exception as e:
             print(f"Error calculating portfolio volatility: {e}")
@@ -679,6 +627,159 @@ class TradingAgent:
     def toggle_active(self) -> bool:
         self.active = not self.active
         return self.active
+        
+    async def execute_small_trades_sequence(self, token_address: str, amount_sol: float = 0.02) -> List[dict]:
+        """Execute a sequence of small trades for a token"""
+        results = []
+        trade_count = 4  # Fixed number of trades
+        
+        for i in range(trade_count):
+            # Alternate between buy and sell
+            direction = 'buy' if i % 2 == 0 else 'sell'
+            
+            trade_request = {
+                'token': token_address,
+                'amount': amount_sol,
+                'direction': direction,
+                'slippage_bps': 250  # 2.5% slippage
+            }
+            
+            try:
+                signature = await self.execute_trade(trade_request)
+                result = {
+                    'status': 'success' if signature else 'failed',
+                    'signature': signature,
+                    'direction': direction,
+                    'amount': amount_sol
+                }
+                results.append(result)
+                
+                if signature:
+                    # Wait between trades
+                    await asyncio.sleep(2.0)
+                else:
+                    # Wait longer if trade failed
+                    await asyncio.sleep(5.0)
+                    
+            except Exception as e:
+                results.append({
+                    'status': 'error',
+                    'error': str(e),
+                    'direction': direction,
+                    'amount': amount_sol
+                })
+                await asyncio.sleep(5.0)
+                
+        return results
+        
+    async def execute_dialogue_trade(self, dialogue_input: str) -> dict:
+        """Execute trade based on dialogue input with bilingual support"""
+        try:
+            # Parse trading instruction using DeepSeek model
+            if not self.model:
+                return {
+                    'status': 'error',
+                    'message': 'Model not initialized',
+                    'message_cn': '模型未初始化'
+                }
+                
+            trade_params = await self.model.analyze_trade(dialogue_input)
+            if not trade_params or 'error' in trade_params:
+                return {
+                    'status': 'error',
+                    'message': trade_params.get('error', 'Failed to parse trade instruction'),
+                    'message_cn': trade_params.get('error_cn', '无法解析交易指令')
+                }
+                
+            # Validate parameters
+            token = trade_params.get('token', '').upper()
+            amount = float(trade_params.get('amount', 0))
+            direction = trade_params.get('direction', '').lower()
+            slippage_bps = int(trade_params.get('slippage_bps', self.slippage))
+            
+            # Basic parameter validation
+            if not token or amount <= 0 or direction not in ['buy', 'sell']:
+                return {
+                    'status': 'error',
+                    'message': 'Invalid trade parameters',
+                    'message_cn': '交易参数无效'
+                }
+                
+            # Convert token symbol to address
+            if token == 'SOL':
+                token = self.sol_token
+            elif token == 'USDC':
+                token = USDC_ADDRESS
+                
+            # Check balances and risk limits
+            balances_ok, balance_msg = await self.check_balances()
+            if not balances_ok:
+                return {
+                    'status': 'error',
+                    'message': f'Insufficient balance: {balance_msg}',
+                    'message_cn': f'余额不足：{balance_msg}'
+                }
+                
+            # Check risk limits
+            risk_ok = await self._check_risk_limits()
+            if not risk_ok:
+                return {
+                    'status': 'error',
+                    'message': 'Risk limits exceeded',
+                    'message_cn': '超出风险限制'
+                }
+                
+            # Get risk analysis from model
+            if not self.model:
+                return {
+                    'status': 'error',
+                    'message': 'Model not initialized',
+                    'message_cn': '模型未初始化'
+                }
+                
+            risk_check = await self.model.check_risk_dialogue({
+                'token': token,
+                'amount': amount,
+                'direction': direction,
+                'slippage': slippage_bps / 10000
+            })
+            
+            if not risk_check.get('approved', False):
+                return {
+                    'status': 'rejected',
+                    'message': risk_check.get('reason', 'Risk check failed'),
+                    'message_cn': risk_check.get('reason_cn', '风险检查未通过')
+                }
+                
+            # Execute trade
+            trade_request = {
+                'token': token,
+                'amount': amount,
+                'direction': direction,
+                'slippage_bps': slippage_bps
+            }
+            
+            signature = await self.execute_trade(trade_request)
+            if signature:
+                return {
+                    'status': 'success',
+                    'message': f'Trade executed successfully: {signature}',
+                    'message_cn': f'交易执行成功：{signature}',
+                    'signature': signature
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'message': 'Trade execution failed',
+                    'message_cn': '交易执行失败'
+                }
+                
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': f'Error executing trade: {str(e)}',
+                'message_cn': f'交易执行错误：{str(e)}'
+            }
 
     def get_instance_metrics(self) -> Dict[str, Any]:
         return {
@@ -752,10 +853,10 @@ class TradingAgent:
                                 'direction': 'buy' if analysis['action'] == 'BUY' else 'sell',
                                 'slippage_bps': self.slippage
                             }
-                            signature = self.execute_trade(trade_request)
+                            signature = await self.execute_trade(trade_request)
                             execution_time = int((time.time() - start_time) * 1000)
                             
-                            self.performance_monitor.log_trade_metrics({
+                            metrics = {
                                 'token': token,
                                 'direction': analysis['action'],
                                 'amount': trade_size,
@@ -763,7 +864,11 @@ class TradingAgent:
                                 'slippage': self.slippage / 100,
                                 'gas_cost': 0.000005,
                                 'success': bool(signature)
-                            })
+                            }
+                            try:
+                                await self.performance_monitor.log_trade_metrics(metrics)
+                            except Exception as e:
+                                cprint(f"❌ Error logging trade metrics: {str(e)}", "red")
                             
                             if signature:
                                 cprint(f"✅ Trade executed for {token}", "green")
@@ -773,7 +878,7 @@ class TradingAgent:
                                 self.last_trade_time = datetime.now()
                                 
                                 # Monitor trading interval
-                                self.system_monitor.monitor_trading_interval(
+                                await self.system_monitor.monitor_trading_interval(
                                     token=token,
                                     last_trade_time=self.last_trade_time,
                                     instance_id=self.instance_id
@@ -784,7 +889,7 @@ class TradingAgent:
                             
                     except Exception as e:
                         cprint(f"❌ Error trading {token}: {str(e)}", "red")
-                        self.performance_monitor.log_trade_metrics({
+                        await self.performance_monitor.log_trade_metrics({
                             'token': token,
                             'direction': 'NEUTRAL',
                             'amount': 0,
