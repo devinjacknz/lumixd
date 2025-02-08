@@ -31,8 +31,10 @@ from src.api.v1.models.trading_instance import (
 )
 from src.api.v1.models.instance_validator import InstanceValidator
 from src.api.v1.models.strategy import Strategy
-from src.api.v1.routes.trades import TradeRequest
+from src.api.v1.routes.trades import TradeRequest, TradeResponse
 from src.api.v1.routes.strategies import strategies_db
+from src.data.jupiter_client import JupiterClient
+from src.api.v1.models.instance_trade import InstanceTradeRequest
 
 def get_instance_manager() -> InstanceManager:
     raise NotImplementedError()
@@ -164,7 +166,7 @@ async def toggle_instance(
 @router.post("/{instance_id}/trade")
 async def execute_instance_trade(
     instance_id: str,
-    trade: TradeRequest,
+    trade: InstanceTradeRequest,
     instance_manager: InstanceManager = Depends(get_instance_manager)
 ):
     check_rate_limit(instance_id)
@@ -180,12 +182,16 @@ async def execute_instance_trade(
         raise HTTPException(status_code=500, detail="Trading agent not found")
         
     try:
-        result = await agent.execute_trade(
-            token=trade.token,
-            direction=trade.direction,
-            amount=trade.amount_sol,
-            instance_config=instance.parameters
+        # Prepare trade request with SOL as input token
+        trade_request = TradeRequest(
+            input_token="So11111111111111111111111111111111111111112",
+            output_token=trade.token,
+            amount_sol=trade.amount_sol,
+            slippage_bps=instance.parameters.get("slippage_bps", 250),
+            use_shared_accounts=instance.parameters.get("use_shared_accounts", True),
+            force_simpler_route=instance.parameters.get("force_simpler_route", True)
         )
+        result = await agent.execute_trade(trade_request)
         return {"success": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
