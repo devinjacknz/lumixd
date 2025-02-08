@@ -55,19 +55,16 @@ class OllamaModel(BaseModel):
             formatted_prompt = f"""
 {system_prompt}
 
-请严格按照以下格式回复 | Please respond in the following format:
-```json
+请严格按照以下格式回复，不要添加任何其他文本 | Please respond in exactly this format with no other text:
+
 {{
-    "key": "value"
+    "direction": "buy",
+    "token": "SOL",
+    "amount": 500,
+    "slippage_bps": 200
 }}
-```
 
-{user_content}
-
-注意事项 | Notes:
-1. 只返回JSON格式，不要添加任何其他文本 | Return only JSON, no other text
-2. 所有字符串必须用双引号 | All strings must use double quotes
-3. 数字不需要引号 | Numbers should not have quotes"""
+{user_content}"""
             data = {
                 "model": self.model_name,
                 "prompt": formatted_prompt,
@@ -163,13 +160,13 @@ class OllamaModel(BaseModel):
             
     async def analyze_trade(self, instruction: str) -> dict:
         """Analyze trading instruction and return structured data"""
-        system_prompt = """你是一个专业的Solana生态DeFi交易助手。分析用户的交易指令并返回JSON格式的结果。
+        system_prompt = """你是一个专业的Solana生态DeFi交易助手。请严格按照以下格式解析交易指令并返回JSON结果。不要添加任何其他文本或字段。
 
 示例输入 | Example input:
 "买入500个SOL代币，滑点不超过2%"
 "Buy 500 SOL tokens with max 2% slippage"
 
-示例输出 | Example output:
+直接返回以下格式 | Return exactly in this format:
 {
     "direction": "buy",
     "token": "SOL",
@@ -177,13 +174,11 @@ class OllamaModel(BaseModel):
     "slippage_bps": 200
 }
 
-注意事项 | Notes:
-1. 必须严格按照示例格式返回JSON | Must return JSON exactly in the example format
-2. 买入=buy，卖出=sell | Buy=buy, Sell=sell
-3. amount必须是数字，不能带引号 | amount must be a number without quotes
-4. slippage_bps必须是数字，例如2%=200 | slippage_bps must be a number, e.g., 2%=200
-5. 所有字符串必须用双引号 | All strings must use double quotes
-6. 不要添加任何其他字段 | Do not add any other fields"""
+规则 | Rules:
+1. 买入/buy -> direction: "buy"
+2. 卖出/sell -> direction: "sell"
+3. amount必须是数字 | amount must be a number
+4. slippage_bps = 滑点百分比 * 100 | slippage percentage * 100"""
         
         response = self.generate_response(
             system_prompt=system_prompt,
@@ -201,11 +196,21 @@ class OllamaModel(BaseModel):
             # Try to parse JSON from response
             content = response.content
             if isinstance(content, str):
+                # Clean up content
+                content = content.replace('```json', '').replace('```', '').strip()
+                content = ' '.join(line.strip() for line in content.split('\n'))
+                
                 # Look for JSON-like structure
                 start_idx = content.find('{')
                 end_idx = content.rfind('}')
                 if start_idx >= 0 and end_idx > start_idx:
                     json_str = content[start_idx:end_idx + 1]
+                    # Clean up JSON string
+                    json_str = re.sub(r'[^\x00-\x7F]+', '', json_str)  # Remove non-ASCII chars
+                    json_str = re.sub(r'(?<!["{\s,])\s*:\s*(?![\s,}"])', '": "', json_str)  # Fix missing quotes
+                    json_str = re.sub(r'(?<=[}\]"])\s*(?=,)', '', json_str)  # Fix spacing
+                    json_str = re.sub(r'(?<=[{\s,])"?(\d+(?:\.\d+)?)"?(?=\s*[,}])', r'\1', json_str)  # Fix quoted numbers
+                    json_str = re.sub(r'"\s*,\s*}', '"}', json_str)  # Fix trailing commas
                     result = json.loads(json_str)
                     
                     # Map trade parameters
@@ -308,4 +313,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                                                              
+            }                                                                          
