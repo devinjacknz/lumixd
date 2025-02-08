@@ -280,8 +280,17 @@ class RaydiumClient:
             logger.warning(f"Failed to get priority fee: {str(e)}")
             return {'vh': 1500, 'h': 1000, 'm': 500}  # Fallback priority fees
             
-    async def execute_swap(self, quote: Dict, wallet_key: str) -> Optional[str]:
-        """Execute swap with proper error handling using Raydium V3 API"""
+    async def execute_swap(self, quote: Dict, wallet_key: str, is_sol_trade: bool = False) -> Optional[str]:
+        """Execute swap with proper error handling using Raydium V3 API
+        
+        Args:
+            quote: Quote data from get_quote
+            wallet_key: Wallet public key
+            is_sol_trade: Whether this trade involves SOL (for wrapping/unwrapping)
+            
+        Returns:
+            Transaction signature or None if error occurs
+        """
         try:
             if not quote:
                 error_msg = ERROR_MESSAGES['swap_failed']
@@ -292,12 +301,16 @@ class RaydiumClient:
                 )
                 return None
                 
+            # Get priority fee for better execution
+            priority_fee = await self.get_priority_fee()
+            
             swap_data = {
+                'computeUnitPriceMicroLamports': str(priority_fee['h']),  # Use high priority
                 'swapResponse': quote,
                 'txVersion': 'V0',  # Use versioned transactions
                 'wallet': wallet_key,
-                'wrapSol': True,  # Handle SOL wrapping
-                'unwrapSol': True  # Handle SOL unwrapping
+                'wrapSol': is_sol_trade,  # Handle SOL wrapping if needed
+                'unwrapSol': is_sol_trade  # Handle SOL unwrapping if needed
             }
             
             await logging_service.log_user_action(
@@ -307,31 +320,51 @@ class RaydiumClient:
             )
             
             try:
-                # Get priority fee for better execution
-                priority_fee = await self.get_priority_fee()
-                swap_data['computeUnitPriceMicroLamports'] = str(priority_fee['h'])  # Use high priority
+                print(f"\n🔄 执行交易 | Executing swap...")
+                print(f"优先级费用 | Priority fee: {priority_fee['h']} microlamports")
+                print(f"交易版本 | Transaction version: {swap_data['txVersion']}")
+                print(f"SOL包装 | SOL wrapping: {'是 | Yes' if is_sol_trade else '否 | No'}")
                 
+                # Get transaction data
                 data = await self._make_request('post', '/transaction/swap-base-in', json=swap_data, base_url=self.TRANSACTION_URL, headers=self.headers)
-                txid = data.get('txid')
                 
-                if txid:
+                if not data.get('transactions'):
+                    print(f"\n❌ 交易失败：没有交易数据 | Swap failed: No transaction data")
+                    raise Exception("No transaction data in response")
+                    
+                # Process all transactions in sequence
+                for tx_data in data['transactions']:
+                    txid = tx_data.get('txid')
+                    if not txid:
+                        continue
+                        
+                    print(f"\n✅ 交易成功 | Swap successful")
+                    print(f"交易ID | Transaction ID: {txid}")
+                        
                     await logging_service.log_user_action(
                         'swap_success',
                         {
                             'txid': txid,
                             'status': 'success',
-                            'priority_fee': priority_fee['h']
+                            'priority_fee': priority_fee['h'],
+                            'is_sol_trade': is_sol_trade
                         },
                         'system'
                     )
-                    return txid
+                    return txid  # Return first successful transaction ID
                     
                 error_msg = ERROR_MESSAGES['swap_failed']
+                print(f"\n❌ 交易失败：没有有效的交易ID | Swap failed: No valid transaction ID")
                 await logging_service.log_error(
                     f"{error_msg['zh']} | {error_msg['en']}",
                     {
-                        'error': 'No transaction ID in response',
-                        'swap_data': {**swap_data, 'userPublicKey': '[REDACTED]'}
+                        'error': 'No valid transaction ID in response',
+                        'swap_data': {
+                            **swap_data,
+                            'wallet': '[REDACTED]',
+                            'priority_fee': priority_fee['h'],
+                            'is_sol_trade': is_sol_trade
+                        }
                     },
                     'system'
                 )
@@ -339,11 +372,17 @@ class RaydiumClient:
                 
             except Exception as e:
                 error_msg = ERROR_MESSAGES['swap_failed']
+                print(f"\n❌ 交易失败：{str(e)} | Swap failed: {str(e)}")
                 await logging_service.log_error(
                     f"{error_msg['zh']} | {error_msg['en']}",
                     {
                         'error': str(e),
-                        'swap_data': {**swap_data, 'userPublicKey': '[REDACTED]'}
+                        'swap_data': {
+                            **swap_data,
+                            'wallet': '[REDACTED]',
+                            'priority_fee': priority_fee['h'],
+                            'is_sol_trade': is_sol_trade
+                        }
                     },
                     'system'
                 )
