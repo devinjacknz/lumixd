@@ -230,9 +230,6 @@ class JupiterClient:
                 cprint(f"❌ Failed to sign transaction: {str(e)}", "red")
                 return None
             
-            return None
-
-            
         except Exception as e:
             cprint(f"❌ Failed to execute swap: {str(e)}", "red")
             return None
