@@ -27,7 +27,7 @@ class JupiterClient:
         self.retry_delay = 1000
         self.last_request_time = 0
         self.min_request_interval = 1.0
-        self.rpc_url = os.getenv("RPC_ENDPOINT")
+        self.rpc_url = os.getenv("RPC_ENDPOINT", "")  # Add default empty string
         self.sol_token = "So11111111111111111111111111111111111111112"
         if not self.rpc_url:
             raise ValueError("RPC_ENDPOINT environment variable is required")

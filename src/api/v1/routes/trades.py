@@ -17,11 +17,11 @@ class TradeRequest(BaseModel):
     input_token: str
     output_token: str
     amount_sol: float
-    slippage_bps: Optional[int] = 250
-    strategy_id: Optional[str] = None
-    max_retries: Optional[int] = 3
-    use_shared_accounts: Optional[bool] = True
-    force_simpler_route: Optional[bool] = True
+    slippage_bps: int = 250
+    strategy_id: str | None = None
+    max_retries: int = 3
+    use_shared_accounts: bool = True
+    force_simpler_route: bool = True
 
 class TradeResponse(BaseModel):
     transaction_signature: str

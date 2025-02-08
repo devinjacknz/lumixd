@@ -9,17 +9,21 @@ from .base_model import BaseModel, ModelResponse
 class DeepSeekModel(BaseModel):
     """Implementation for DeepSeek's models"""
     
-    AVAILABLE_MODELS = {
-        "deepseek-r1:1.5b": "DeepSeek R1 1.5B model",
-        "deepseek-chat": "Fast chat model",
-        "deepseek-coder": "Code-specialized model",
-        "deepseek-reasoner": "Enhanced reasoning model"
-    }
+    @property
+    def AVAILABLE_MODELS(self) -> dict[str, str]:
+        return {
+            "deepseek-r1:1.5b": "DeepSeek R1 1.5B model",
+            "deepseek-chat": "Fast chat model",
+            "deepseek-coder": "Code-specialized model",
+            "deepseek-reasoner": "Enhanced reasoning model"
+        }
     
-    def __init__(self, api_key: str = None, model_name: str = "deepseek-r1:1.5b", base_url: str = "https://api.deepseek.com/v3", **kwargs):
+    def __init__(self, api_key: str = "", model_name: str = "deepseek-r1:1.5b", base_url: str = "https://api.deepseek.com/v3", **kwargs):
+        self.api_key = api_key
         self.model_name = model_name
         self.base_url = base_url
-        super().__init__(api_key, **kwargs)
+        self.client = None
+        super().__init__()
     
     def initialize_client(self, **kwargs) -> None:
         """Initialize the DeepSeek client"""
@@ -42,6 +46,11 @@ class DeepSeekModel(BaseModel):
     ) -> ModelResponse:
         """Generate a response using DeepSeek"""
         try:
+            if not self.client:
+                self.initialize_client()
+            if not self.client:
+                raise ValueError("Failed to initialize DeepSeek client")
+                
             response = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[
@@ -55,9 +64,7 @@ class DeepSeekModel(BaseModel):
             
             return ModelResponse(
                 content=response.choices[0].message.content.strip(),
-                raw_response=response,
-                model_name=self.model_name,
-                usage=response.usage.model_dump() if hasattr(response, 'usage') else None
+                raw_response=response.model_dump()
             )
             
         except Exception as e:
@@ -70,4 +77,4 @@ class DeepSeekModel(BaseModel):
     
     @property
     def model_type(self) -> str:
-        return "deepseek"        
+        return "deepseek"                                                
