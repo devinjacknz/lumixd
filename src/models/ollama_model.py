@@ -50,31 +50,49 @@ class OllamaModel(BaseModel):
             return None
             
         try:
+            # Format prompt to encourage JSON response
+            formatted_prompt = f"""
+{system_prompt}
+
+请用JSON格式回复。确保回复以 '{{' 开始，以 '}}' 结束。
+Please respond in JSON format. Ensure the response starts with '{{' and ends with '}}'.
+
+{user_content}
+"""
             data = {
                 "model": self.model_name,
-                "prompt": f"{system_prompt}\n\n{user_content}",
+                "prompt": formatted_prompt,
                 "temperature": temperature,
-                "format": "json"
+                "raw": True  # Get raw response without formatting
             }
             
             response = requests.post(self.api_url, json=data, headers=self.headers)
             response.raise_for_status()
             
-            content = response.json().get('response', '')
+            content = response.json().get('response', '').strip()
             
             # Try to parse JSON from response
             try:
-                # Look for JSON-like structure
+                # Clean up response
+                content = content.replace('\n', ' ').strip()
+                
+                # Find JSON content
                 start_idx = content.find('{')
                 end_idx = content.rfind('}')
+                
                 if start_idx >= 0 and end_idx > start_idx:
                     json_str = content[start_idx:end_idx + 1]
+                    # Remove any non-JSON text
+                    json_str = json_str.replace('```json', '').replace('```', '')
                     parsed_content = json.loads(json_str)
+                    
                     return ModelResponse(
                         content=json.dumps(parsed_content),
                         raw_response=response.json()
                     )
-            except json.JSONDecodeError:
+                        
+            except json.JSONDecodeError as e:
+                print(f"Error parsing JSON: {e}")
                 pass
                 
             # Return raw response if JSON parsing fails
@@ -197,4 +215,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }  
+            }          
