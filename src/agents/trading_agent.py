@@ -673,11 +673,6 @@ class TradingAgent(BaseAgent):
                 token = self.sol_token
             elif token == 'USDC':
                 token = USDC_ADDRESS
-                return {
-                    'status': 'error',
-                    'message': 'Invalid trade parameters',
-                    'message_cn': '交易参数无效'
-                }
                 
             # Check balances and risk limits
             balances_ok, balance_msg = await self.check_balances()
