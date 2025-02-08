@@ -21,8 +21,8 @@ load_dotenv()
 
 class JupiterClient:
     def __init__(self):
-        self.base_url = "https://api.jup.ag/swap"
-        self.api_version = "v1"
+        self.base_url = "https://quote-api.jup.ag"
+        self.api_version = "v6"
         self.headers = {"Content-Type": "application/json"}
         self.slippage_bps = 250
         self.max_retries = 3
@@ -60,11 +60,12 @@ class JupiterClient:
                 "outputMint": output_mint,
                 "amount": amount,
                 "slippageBps": int(os.getenv("DEFAULT_SLIPPAGE_BPS", "250")),
-                "onlyDirectRoutes": "false",
+                "onlyDirectRoutes": "true",
                 "asLegacyTransaction": "true",
                 "wrapUnwrapSOL": "true",
                 "useSharedAccounts": "true" if use_shared_accounts else "false",
-                "platformFeeBps": "0"
+                "platformFeeBps": "0",
+                "maxAccounts": 64
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             
@@ -109,18 +110,23 @@ class JupiterClient:
                     f"{self.base_url}/{self.api_version}/swap",
                     headers=self.headers,
                     json={
-                        "route": quote_response,
+                        "quoteResponse": quote_response,
                         "userPublicKey": wallet_pubkey,
-                        "slippageBps": 250,
+                        "wrapUnwrapSOL": "true",
+                        "asLegacyTransaction": "true",
+                        "useSharedAccounts": "true",
                         "computeUnitPriceMicroLamports": 1000,
-                        "asLegacyTransaction": True,
-                        "wrapUnwrapSOL": True,
-                        "useSharedAccounts": True,
-                        "computeUnitLimit": 1400000,
-                        "skipUserAccountsCheck": True,
-                        "minContextSlot": quote_response.get("contextSlot"),
+                        "skipPreflight": "true",
                         "maxAccounts": 64,
-                        "prioritizationFeeLamports": 10000
+                        "platformFeeBps": 0,
+                        "onlyDirectRoutes": "true",
+                        "restrictIntermediateTokens": "true",
+                        "minContextSlot": quote_response["contextSlot"],
+                        "dynamicComputeUnitLimit": "true",
+                        "prioritizationFeeLamports": 10000,
+                        "feeAccount": None,
+                        "destinationTokenAccount": None,
+                        "destinationWallet": None
                     },
                     timeout=60
                 ) as response:
