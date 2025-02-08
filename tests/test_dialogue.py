@@ -6,6 +6,11 @@ from src.agents.trading_agent import TradingAgent
 # Load environment variables
 load_dotenv()
 
+# Set up test environment
+os.environ["WALLET_ADDRESS"] = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
+os.environ["RPC_ENDPOINT"] = "https://solana-mainnet.core.chainstack.com/60d783949ddfbc48b7f1232aa308d7b8"
+os.environ["SOLANA_PRIVATE_KEY"] = "${walletkey}"  # Use test wallet key from environment
+
 async def test_dialogue_trading():
     """Test bilingual dialogue trading functionality"""
     agent = TradingAgent()
