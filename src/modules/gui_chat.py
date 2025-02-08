@@ -173,5 +173,33 @@ class ChatWindow(QMainWindow):
             
     def update_chart(self, data: Dict):
         """Update K-line chart with new data"""
-        # TODO: Implement chart update using a proper charting library
-        pass
+        try:
+            import pyqtgraph as pg
+            
+            # Create chart if not exists
+            if not hasattr(self, 'chart_plot'):
+                self.chart_plot = pg.PlotWidget()
+                self.chart_plot.setBackground('w')
+                self.chart_plot.showGrid(x=True, y=True)
+                self.chart_plot.setLabel('left', 'Price')
+                self.chart_plot.setLabel('bottom', 'Time')
+                
+                # Replace placeholder with actual chart
+                chart_layout = self.chart_widget.layout()
+                if chart_layout:
+                    for i in reversed(range(chart_layout.count())): 
+                        chart_layout.itemAt(i).widget().setParent(None)
+                chart_layout.addWidget(self.chart_plot)
+            
+            # Update chart data
+            if 'prices' in data and 'timestamps' in data:
+                self.chart_plot.clear()
+                self.chart_plot.plot(
+                    x=data['timestamps'],
+                    y=data['prices'],
+                    pen=pg.mkPen('b', width=2)
+                )
+        except Exception as e:
+            print(f"Failed to update chart: {str(e)}")
+            # Fallback to basic label
+            self.chart_widget.layout().addWidget(QLabel("Chart unavailable"))
