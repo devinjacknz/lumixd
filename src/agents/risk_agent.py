@@ -6,6 +6,7 @@ Monitors and manages trading risk
 import os
 import sys
 import time
+import asyncio
 import requests
 from pathlib import Path
 from datetime import datetime
@@ -14,9 +15,11 @@ import numpy as np
 from termcolor import cprint
 from src.agents.focus_agent import MODEL_TYPE, MODEL_NAME
 from src.models import ModelFactory
+from src.agents.base_agent import BaseAgent
 
-class RiskAgent:
-    def __init__(self, model_type=MODEL_TYPE, model_name=MODEL_NAME):
+class RiskAgent(BaseAgent):
+    def __init__(self, agent_type: str = 'risk', instance_id: str = 'main', model_type=MODEL_TYPE, model_name=MODEL_NAME):
+        super().__init__(agent_type=agent_type, instance_id=instance_id)
         self.model_type = model_type
         self.model_name = model_name
         self.model_factory = ModelFactory()
@@ -222,17 +225,30 @@ class RiskAgent:
                 'reason': f'Error: {str(e)}'
             }
 
-    def run(self):
+    async def run(self):
         """Main monitoring loop"""
-        print("\nRisk Agent starting...")
+        print(f"\nRisk Agent {self.instance_id} starting...")
         print("Ready to monitor portfolio risk!")
         
         try:
-            while True:
-                time.sleep(0.1)
+            while self.active:
+                # Analyze current portfolio risk
+                portfolio_data = {
+                    'positions': self.get_current_positions(),
+                    'market_volatility': 0.2,  # TODO: Get real-time volatility
+                    'portfolio_volatility': 0.15  # TODO: Calculate from positions
+                }
                 
+                risk_analysis = self.analyze_risk(portfolio_data)
+                if risk_analysis['risk_level'] == 'high':
+                    cprint(f"⚠️ High risk detected: {risk_analysis['reason']}", "red")
+                    
+                await asyncio.sleep(60)  # Check every minute
+                
+        except Exception as e:
+            cprint(f"\n❌ Risk Agent error: {str(e)}", "red")
         except KeyboardInterrupt:
-            print("\nRisk Agent shutting down...")
+            cprint("\nRisk Agent shutting down...", "yellow")
 
 if __name__ == "__main__":
     agent = RiskAgent()

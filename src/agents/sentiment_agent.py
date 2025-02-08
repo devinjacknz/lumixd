@@ -93,9 +93,9 @@ httpx.Client = patched_client
 from .base_agent import BaseAgent
 
 class SentimentAgent(BaseAgent):
-    def __init__(self):
+    def __init__(self, agent_type: str = 'sentiment', instance_id: str = 'main'):
         """Initialize the Sentiment Agent"""
-        super().__init__("sentiment")
+        super().__init__(agent_type=agent_type, instance_id=instance_id)
         self.tokenizer = None
         self.model = None
         self.audio_dir = Path("src/audio")
@@ -310,7 +310,7 @@ class SentimentAgent(BaseAgent):
             cprint(f"❌ Error calculating sentiment change: {str(e)}", "red")
             return None, None
 
-    def analyze_and_announce_sentiment(self, tweets):
+    async def analyze_and_announce_sentiment(self, tweets):
         """Analyze sentiment of tweets and announce results"""
         if not tweets:
             return
@@ -364,7 +364,7 @@ class SentimentAgent(BaseAgent):
         # Get market volatility from trading agent
         from src.agents.trading_agent import TradingAgent
         trading_agent = TradingAgent()
-        volatility = trading_agent.calculate_volatility("SOL")  # Use SOL as market indicator
+        volatility = await trading_agent.calculate_volatility("SOL")  # Use SOL as market indicator
         
         # Calculate dynamic threshold
         dynamic_threshold = self.calculate_dynamic_threshold(volatility)
@@ -478,7 +478,7 @@ class SentimentAgent(BaseAgent):
         except Exception as e:
             cprint(f"❌ Error saving to CSV: {str(e)}", "red")
 
-    def run_async(self):
+    async def run_async(self):
         """Run sentiment analysis with Twitter integration"""
         cprint("Sentiment Analysis running...", "cyan")
         
@@ -487,7 +487,7 @@ class SentimentAgent(BaseAgent):
                 cprint(f"\n🔍 Analyzing sentiment for {token}...", "cyan")
                 tweets = self.get_tweets(token)
                 self.save_tweets(tweets, token)
-                self.analyze_and_announce_sentiment(tweets)
+                await self.analyze_and_announce_sentiment(tweets)
             except Exception as e:
                 cprint(f"❌ Error analyzing {token}: {str(e)}", "red")
                 
@@ -515,29 +515,29 @@ class SentimentAgent(BaseAgent):
         adj = base * (1 + volatility/20)
         return max(min(adj, 0.85), 0.4)  # Threshold range [0.4, 0.85]
 
-    def run(self):
+    async def run(self):
         """Main function to run sentiment analysis (implements BaseAgent interface)"""
-        self.run_async()  # Run the async implementation while maintaining BaseAgent interface
+        try:
+            while self.active:
+                await self.run_async()  # Run the async implementation
+                next_run = datetime.now() + timedelta(minutes=CHECK_INTERVAL_MINUTES)
+                cprint(f"\n😴 Next sentiment check at {next_run.strftime('%H:%M:%S')}", "cyan")
+                await asyncio.sleep(60 * CHECK_INTERVAL_MINUTES)
+        except Exception as e:
+            cprint(f"\n❌ Error in sentiment agent: {str(e)}", "red")
 
 if __name__ == "__main__":
     try:
         agent = SentimentAgent()
         cprint(f"\nSentiment Agent starting (checking every {CHECK_INTERVAL_MINUTES} minutes)...", "cyan")
         
-        while True:
+        async def main():
             try:
-                agent.run()
-                next_run = datetime.now() + timedelta(minutes=CHECK_INTERVAL_MINUTES)
-                cprint(f"\n😴 Next sentiment check at {next_run.strftime('%H:%M:%S')}", "cyan")
-                time.sleep(60 * CHECK_INTERVAL_MINUTES)
+                await agent.run()
             except KeyboardInterrupt:
-                raise
+                cprint("\nSentiment Agent shutting down gracefully...", "yellow")
             except Exception as e:
-                cprint(f"\n❌ Error in run loop: {str(e)}", "red")
-                time.sleep(60)  # Wait a minute before retrying
+                cprint(f"\n❌ Fatal error: {str(e)}", "red")
+                sys.exit(1)
                 
-    except KeyboardInterrupt:
-        cprint("\nSentiment Agent shutting down gracefully...", "yellow")
-    except Exception as e:
-        cprint(f"\n❌ Fatal error: {str(e)}", "red")
-        sys.exit(1)
+        asyncio.run(main())

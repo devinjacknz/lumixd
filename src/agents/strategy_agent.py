@@ -6,15 +6,18 @@ Manages trading strategies and execution
 import os
 import sys
 import time
+import asyncio
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 import numpy as np
 from termcolor import cprint
 from src.models import ModelFactory
+from src.agents.base_agent import BaseAgent
 
-class StrategyAgent:
-    def __init__(self):
+class StrategyAgent(BaseAgent):
+    def __init__(self, agent_type: str = 'strategy', instance_id: str = 'main'):
+        super().__init__(agent_type=agent_type, instance_id=instance_id)
         self.strategies = {}
         self.model_factory = ModelFactory()
         self.model = self.model_factory.get_model("ollama")
@@ -37,7 +40,7 @@ class StrategyAgent:
             print(f"  • {name.title()} Strategy")
         print("Strategy Agent initialized!")
 
-    def analyze_market_data(self, token_data: dict) -> dict:
+    async def analyze_market_data(self, token_data: dict) -> dict:
         """Analyze market data using loaded strategies"""
         if not token_data or 'symbol' not in token_data:
             return {'action': 'hold', 'reason': 'Invalid token data'}
@@ -68,17 +71,29 @@ class StrategyAgent:
             'strategies': results
         }
 
-    def run(self):
+    async def run(self):
         """Main processing loop"""
-        print("\nStrategy Agent starting...")
+        print(f"\nStrategy Agent {self.instance_id} starting...")
         print("Ready to execute strategies!")
         
         try:
-            while True:
-                time.sleep(1)  # Rate limiting for Chainstack
+            while self.active:
+                # Process strategies
+                for strategy_name in self.strategies:
+                    try:
+                        token_data = {'symbol': strategy_name}
+                        analysis = await self.analyze_market_data(token_data)
+                        if analysis['action'] != 'hold':
+                            cprint(f"Strategy {strategy_name}: {analysis['action']}", "cyan")
+                    except Exception as e:
+                        cprint(f"❌ Error in strategy {strategy_name}: {str(e)}", "red")
+                        
+                await asyncio.sleep(60)  # Check every minute
                 
+        except Exception as e:
+            cprint(f"\n❌ Strategy Agent error: {str(e)}", "red")
         except KeyboardInterrupt:
-            print("\nStrategy Agent shutting down...")
+            cprint("\nStrategy Agent shutting down...", "yellow")
 
 if __name__ == "__main__":
     agent = StrategyAgent()
