@@ -75,20 +75,8 @@ class JupiterClient:
                 raise ValueError("No swap transaction returned")
                 
             cprint(f"📝 Got swap transaction", "cyan")
-            signature = self._send_and_confirm_transaction(tx_data)
-            if not signature:
-                raise ValueError("Failed to send transaction")
-                
-            cprint(f"✅ Transaction confirmed: {signature}", "green")
-            cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
-            return signature
-            data = response.json()
             
-            unsigned_tx = data.get("swapTransaction")
-            if not unsigned_tx:
-                cprint("❌ No swap transaction received", "red")
-                return None
-                
+            # Get recent blockhash
             response = requests.post(
                 self.rpc_url,
                 headers=self.headers,
@@ -100,26 +88,24 @@ class JupiterClient:
                 }
             )
             response.raise_for_status()
-            blockhash_data = response.json().get("result", {}).get("value", {})
-            if not blockhash_data or "blockhash" not in blockhash_data:
-                cprint("❌ Failed to get blockhash", "red")
-                return None
+            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
+            if not blockhash:
+                raise ValueError("Failed to get blockhash")
                 
+            # Decode and sign transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx_bytes = base64.b64decode(unsigned_tx)
+            tx_bytes = base64.b64decode(tx_data)
             tx = Transaction.from_bytes(tx_bytes)
-            blockhash = Hash.from_string(blockhash_data["blockhash"])
-            tx.sign([wallet_key], blockhash)
-            
+            tx.sign([wallet_key], Hash.from_string(blockhash))
             signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
-            cprint(f"📝 Signed transaction: {signed_tx[:64]}...", "cyan")
             
+            # Send transaction
             response = requests.post(
                 self.rpc_url,
                 headers=self.headers,
                 json={
                     "jsonrpc": "2.0",
-                    "id": "submit-tx",
+                    "id": "send-tx",
                     "method": "sendTransaction",
                     "params": [
                         signed_tx,
@@ -134,17 +120,46 @@ class JupiterClient:
                 }
             )
             response.raise_for_status()
-            data = response.json()
+            result = response.json()
             
-            if "error" in data:
-                cprint(f"❌ RPC error: {json.dumps(data['error'], indent=2)}", "red")
+            if "error" in result:
+                cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
                 return None
                 
-            signature = data.get("result")
-            if not signature:
-                cprint("❌ No transaction signature received", "red")
+            signature = result.get("result")
+            if signature and self.monitor_transaction(signature):
+                cprint(f"✅ Transaction confirmed: {signature}", "green")
+                cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
+                return signature
+            return None
+            # Send transaction
+            response = requests.post(
+                self.rpc_url,
+                headers=self.headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "send-tx",
+                    "method": "sendTransaction",
+                    "params": [
+                        tx_data,
+                        {
+                            "encoding": "base64",
+                            "maxRetries": 3,
+                            "skipPreflight": True,
+                            "preflightCommitment": "finalized",
+                            "minContextSlot": quote_response.get("contextSlot")
+                        }
+                    ]
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            
+            if "error" in result:
+                cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
                 return None
                 
+            signature = result.get("result")
             if signature and self.monitor_transaction(signature):
                 return signature
             return None
@@ -236,6 +251,13 @@ class JupiterClient:
 
     def _send_and_confirm_transaction(self, tx_data: str) -> Optional[str]:
         try:
+            # Load private key
+            wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
+            
+            # Decode base64 transaction
+            tx_bytes = base64.b64decode(tx_data)
+            tx = Transaction.from_bytes(tx_bytes)
+            
             # Get recent blockhash
             response = requests.post(
                 self.rpc_url,
@@ -251,7 +273,11 @@ class JupiterClient:
             blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
             if not blockhash:
                 raise ValueError("Failed to get blockhash")
-
+                
+            # Sign transaction
+            tx.sign([wallet_key], Hash.from_string(blockhash))
+            signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
+            
             # Send transaction
             response = requests.post(
                 self.rpc_url,
@@ -261,14 +287,12 @@ class JupiterClient:
                     "id": "send-tx",
                     "method": "sendTransaction",
                     "params": [
-                        tx_data,
+                        signed_tx,
                         {
                             "encoding": "base64",
                             "maxRetries": 3,
                             "skipPreflight": True,
-                            "preflightCommitment": "finalized",
-                            "minContextSlot": None,
-                            "maxContextSlot": None
+                            "preflightCommitment": "finalized"
                         }
                     ]
                 }
