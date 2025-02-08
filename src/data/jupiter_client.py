@@ -7,7 +7,7 @@ import base64
 from datetime import datetime
 from termcolor import cprint
 from solders.keypair import Keypair
-from solders.transaction import Transaction, VersionedTransaction
+from solders.transaction import Transaction
 from solders.hash import Hash
 from solders.message import Message
 from dotenv import load_dotenv
@@ -44,7 +44,8 @@ class JupiterClient:
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250
+                "slippageBps": 250,
+                "platformFeeBps": 0
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
@@ -59,100 +60,44 @@ class JupiterClient:
     def execute_swap(self, quote_response: Dict, wallet_pubkey: str, use_shared_accounts: bool = True) -> Optional[str]:
         try:
             self._rate_limit()
-            url = f"{self.base_url}/swap"
-            payload = {
-                "quoteResponse": quote_response,
-                "userPublicKey": wallet_pubkey,
-                "wrapUnwrapSOL": True
-            }
-            cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
-            response = requests.post(url, headers=self.headers, json=payload)
-            response.raise_for_status()
-            
-            swap_response = response.json()
-            tx_data = swap_response.get('swapTransaction')
-            if not tx_data:
-                raise ValueError("No swap transaction returned")
-                
-            cprint(f"📝 Got swap transaction", "cyan")
-            
-            # Get recent blockhash
-            response = requests.post(
-                self.rpc_url,
-                headers=self.headers,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": "get-blockhash",
-                    "method": "getLatestBlockhash",
-                    "params": [{"commitment": "confirmed"}]
-                }
-            )
-            response.raise_for_status()
-            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
-            if not blockhash:
-                raise ValueError("Failed to get blockhash")
-                
-            # Get swap instructions
-            response = requests.post(
-                f"{self.base_url}/swap-instructions",
-                headers=self.headers,
-                json={
-                    "quoteResponse": quote_response,
-                    "userPublicKey": wallet_pubkey,
-                    "computeUnitPriceMicroLamports": 1000,
-                    "asLegacyTransaction": True,
-                    "useSharedAccounts": True,
-                    "dynamicComputeUnitLimit": True
-                }
-            )
-            response.raise_for_status()
-            instructions = response.json()
-            
-            # Get recent blockhash
-            response = requests.post(
-                self.rpc_url,
-                headers=self.headers,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": "get-blockhash",
-                    "method": "getLatestBlockhash",
-                    "params": [{"commitment": "confirmed"}]
-                }
-            )
-            response.raise_for_status()
-            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
-            if not blockhash:
-                raise ValueError("Failed to get blockhash")
-                
-            # Get swap transaction
+            cprint(f"🔄 Requesting swap with optimized parameters", "cyan")
             response = requests.post(
                 f"{self.base_url}/swap",
                 headers=self.headers,
                 json={
                     "quoteResponse": quote_response,
                     "userPublicKey": wallet_pubkey,
-                    "wrapUnwrapSOL": True,
-                    "computeUnitPriceMicroLamports": 1000,
-                    "useSharedAccounts": True,
-                    "dynamicComputeUnitLimit": True,
-                    "prioritizationFeeLamports": {
-                        "priorityLevelWithMaxLamports": {
-                            "maxLamports": 10000000,
-                            "priorityLevel": "veryHigh"
-                        }
-                    }
+                    "wrapUnwrapSOL": True
                 }
             )
             response.raise_for_status()
             tx_data = response.json().get("swapTransaction")
             if not tx_data:
                 raise ValueError("No swap transaction returned")
-                
+
             # Sign transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             tx_bytes = base64.b64decode(tx_data)
-            tx = VersionedTransaction.deserialize(tx_bytes)
-            tx.sign([wallet_key])
+            tx = Transaction.from_bytes(tx_bytes)
+            
+            # Get recent blockhash
+            response = requests.post(
+                self.rpc_url,
+                headers=self.headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "get-blockhash",
+                    "method": "getLatestBlockhash",
+                    "params": [{"commitment": "finalized"}]
+                }
+            )
+            response.raise_for_status()
+            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
+            if not blockhash:
+                raise ValueError("Failed to get blockhash")
+            
+            # Sign with blockhash
+            tx.sign([wallet_key], Hash.from_string(blockhash))
             signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
             
             # Send transaction
