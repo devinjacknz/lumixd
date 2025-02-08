@@ -639,7 +639,7 @@ class TradingAgent(BaseAgent):
     async def execute_small_trades_sequence(self, token_address: str, trade_count: int = 4) -> List[dict]:
         """Execute a sequence of small trades for a token"""
         results = []
-        trade_size = 0.01  # Small trade size in SOL
+        trade_size = 0.001  # Very small trade size in SOL (0.001 SOL)
         
         for i in range(trade_count):
             # Alternate between buy and sell
