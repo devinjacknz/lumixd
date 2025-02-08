@@ -132,37 +132,7 @@ class JupiterClient:
                 cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
                 return signature
             return None
-            # Send transaction
-            response = requests.post(
-                self.rpc_url,
-                headers=self.headers,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": "send-tx",
-                    "method": "sendTransaction",
-                    "params": [
-                        tx_data,
-                        {
-                            "encoding": "base64",
-                            "maxRetries": 3,
-                            "skipPreflight": True,
-                            "preflightCommitment": "finalized",
-                            "minContextSlot": quote_response.get("contextSlot")
-                        }
-                    ]
-                }
-            )
-            response.raise_for_status()
-            result = response.json()
-            
-            if "error" in result:
-                cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
-                return None
-                
-            signature = result.get("result")
-            if signature and self.monitor_transaction(signature):
-                return signature
-            return None
+
             
         except Exception as e:
             cprint(f"❌ Failed to execute swap: {str(e)}", "red")
