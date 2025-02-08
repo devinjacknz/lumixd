@@ -121,63 +121,62 @@ class JupiterClient:
                 if not tx_data:
                     raise ValueError("No transaction data received")
                     
-                # Get recent blockhash
-                response = requests.post(
-                    self.rpc_url,
-                    headers=self.headers,
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": "get-blockhash",
-                        "method": "getLatestBlockhash",
-                        "params": [{"commitment": "finalized"}]
-                    }
-                )
-                response.raise_for_status()
-                blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
-                if not blockhash:
-                    raise ValueError("Failed to get blockhash")
+                # Get recent blockhash and swap transaction
+                async with aiohttp.ClientSession() as session:
+                    # Get blockhash
+                    async with session.post(
+                        self.rpc_url,
+                        headers=self.headers,
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": "get-blockhash",
+                            "method": "getLatestBlockhash",
+                            "params": [{"commitment": "finalized"}]
+                        }
+                    ) as response:
+                        response.raise_for_status()
+                        result = await response.json()
+                        blockhash = result.get("result", {}).get("value", {}).get("blockhash")
+                        if not blockhash:
+                            raise ValueError("Failed to get blockhash")
 
-                # Initialize retry variables
-                retry_count = 0
-                max_retries = 3
-                retry_delay = 1
-                
-                # Get swap transaction
-                swap_response = requests.post(
-                    f"{self.base_url}/v6/swap",
-                    headers=self.headers,
-                    json={
-                        "quoteResponse": quote_response,
-                        "userPublicKey": wallet_pubkey,
-                        "wrapUnwrapSOL": True,
-                        "asLegacyTransaction": True,
-                        "onlyDirectRoutes": True,
-                        "skipPreflight": True,
-                        "slippageBps": 250,
-                        "swapMode": "ExactIn",
-                        "computeUnitPriceMicroLamports": 1000,
-                        "computeUnitLimit": 1400000,
-                        "useTokenLedger": False,
-                        "destinationTokenAccount": None,
-                        "dynamicComputeUnitLimit": False,
-                        "useSharedAccounts": True,
-                        "maxAccounts": 54,
-                        "platformFeeBps": 0,
-                        "minContextSlot": None,
-                        "strictValidation": True,
-                        "prioritizationFeeLamports": 10000,
-                        "useVersionedTransaction": False
-                    }
-                )
-                cprint("🔄 Got swap response", "cyan")
-                swap_response.raise_for_status()
-                tx_data = swap_response.json().get("swapTransaction")
-                if not tx_data:
-                    raise ValueError("No swap transaction returned")
-                swap_response.raise_for_status()
-                tx_data = swap_response.json().get("swapTransaction")
-                if not tx_data:
-                    raise ValueError("No swap transaction returned")
+                    # Initialize retry variables
+                    retry_count = 0
+                    max_retries = 3
+                    retry_delay = 1
+                    
+                    # Get swap transaction
+                    async with session.post(
+                        f"{self.base_url}/v6/swap",
+                        headers=self.headers,
+                        json={
+                            "quoteResponse": quote_response,
+                            "userPublicKey": wallet_pubkey,
+                            "wrapUnwrapSOL": True,
+                            "asLegacyTransaction": True,
+                            "onlyDirectRoutes": True,
+                            "skipPreflight": True,
+                            "slippageBps": 250,
+                            "swapMode": "ExactIn",
+                            "computeUnitPriceMicroLamports": 1000,
+                            "computeUnitLimit": 1400000,
+                            "useTokenLedger": False,
+                            "destinationTokenAccount": None,
+                            "dynamicComputeUnitLimit": False,
+                            "useSharedAccounts": True,
+                            "maxAccounts": 54,
+                            "platformFeeBps": 0,
+                            "minContextSlot": None,
+                            "strictValidation": True,
+                            "prioritizationFeeLamports": 10000,
+                            "useVersionedTransaction": False
+                        }
+                    ) as response:
+                        response.raise_for_status()
+                        result = await response.json()
+                        tx_data = result.get("swapTransaction")
+                        if not tx_data:
+                            raise ValueError("No swap transaction returned")
                     
                 signed_tx = tx_data
                 cprint("✅ Using pre-signed transaction from Jupiter", "green")
@@ -185,42 +184,43 @@ class JupiterClient:
                 
                 while retry_count < max_retries:
                     try:
-                        response = requests.post(
-                            self.rpc_url,
-                            headers=self.headers,
-                            json={
-                                "jsonrpc": "2.0",
-                                "id": "send-tx",
-                                "method": "sendTransaction",
-                                "params": [
-                                    signed_tx,
-                                    {
-                                        "encoding": "base64",
-                                        "skipPreflight": True,
-                                        "preflightCommitment": "confirmed"
-                                    }
-                                ]
-                            },
-                            timeout=60
-                        )
-                        response.raise_for_status()
-                        result = response.json()
-                        
-                        if "error" in result:
-                            cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
-                            return None
-                            
-                        signature = result.get("result")
-                        if signature and self.monitor_transaction(signature):
-                            cprint(f"✅ Transaction confirmed: {signature}", "green")
-                            cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
-                            return signature
-                        return None
-                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                self.rpc_url,
+                                headers=self.headers,
+                                json={
+                                    "jsonrpc": "2.0",
+                                    "id": "send-tx",
+                                    "method": "sendTransaction",
+                                    "params": [
+                                        signed_tx,
+                                        {
+                                            "encoding": "base64",
+                                            "skipPreflight": True,
+                                            "preflightCommitment": "confirmed"
+                                        }
+                                    ]
+                                },
+                                timeout=60
+                            ) as response:
+                                response.raise_for_status()
+                                result = await response.json()
+                                
+                                if "error" in result:
+                                    cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
+                                    return None
+                                
+                                signature = result.get("result")
+                                if signature and await self.monitor_transaction(signature):
+                                    cprint(f"✅ Transaction confirmed: {signature}", "green")
+                                    cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
+                                    return signature
+                                return None
+                    except aiohttp.ClientError as e:
                         retry_count += 1
                         if retry_count < max_retries:
                             cprint(f"⚠️ RPC request failed (attempt {retry_count}): {str(e)}", "yellow")
-                            time.sleep(retry_delay)
+                            await asyncio.sleep(retry_delay)
                             retry_delay *= 2
                         else:
                             raise Exception(f"Failed to send transaction after {max_retries} retries: {str(e)}")
