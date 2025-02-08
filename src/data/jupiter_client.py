@@ -110,17 +110,16 @@ class JupiterClient:
                     json={
                         "quoteResponse": quote_response,
                         "userPublicKey": wallet_pubkey,
-                        "wrapUnwrapSOL": True,
+                        "wrapAndUnwrapSol": True,
                         "useSharedAccounts": True,
+                        "feeAccount": wallet_pubkey,
                         "computeUnitPriceMicroLamports": 1000,
                         "asLegacyTransaction": True,
+                        "useTokenLedger": True,
+                        "destinationTokenAccount": None,
                         "dynamicComputeUnitLimit": True,
-                        "prioritizationFeeLamports": {
-                            "priorityLevelWithMaxLamports": {
-                                "maxLamports": 10000000,
-                                "priorityLevel": "veryHigh"
-                            }
-                        }
+                        "prioritizationFeeLamports": 10000,
+                        "skipUserAccountsCheck": True
                     },
                     timeout=60
                 ) as response:
