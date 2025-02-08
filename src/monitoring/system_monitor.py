@@ -1,5 +1,8 @@
 import os
 import psutil
+import asyncio
+import requests
+from decimal import Decimal
 from typing import Dict, Any, Optional, List
 import time
 from datetime import datetime
@@ -13,6 +16,15 @@ class SystemMonitor:
         self.last_check = datetime.now()
         self.instance_metrics: Dict[str, Dict[str, Any]] = {}
         self.active_trades: Dict[str, List[Dict[str, Any]]] = {}
+        self.thresholds = {
+            'min_success_rate': Decimal('0.95'),
+            'max_rpc_latency_ms': 2000,
+            'max_execution_time_ms': 5000,
+            'max_slippage_bps': 300,
+            'min_sol_balance': Decimal('0.05'),
+            'max_cpu_usage': 80,
+            'max_memory_usage': 80
+        }
         
     def check_system_health(self) -> Dict[str, Any]:
         try:
@@ -99,3 +111,34 @@ class SystemMonitor:
             self.active_trades[instance_id] = [
                 t for t in trades if t['status'] == 'active'
             ]
+            
+    async def verify_transaction(self, signature: str) -> bool:
+        try:
+            import requests
+            import time
+            
+            # Wait for transaction to be confirmed
+            start_time = time.time()
+            while time.time() - start_time < 30:  # 30 second timeout
+                # Check transaction on Solscan
+                url = f"https://solscan.io/tx/{signature}"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    # Log verification
+                    self.performance_monitor.logger.info(
+                        f"Transaction verified: {signature}\n"
+                        f"View on Solscan: {url}"
+                    )
+                    return True
+                    
+                await asyncio.sleep(2)
+                
+            self.performance_monitor.logger.error(
+                f"Transaction verification timeout: {signature}"
+            )
+            return False
+        except Exception as e:
+            self.performance_monitor.logger.error(
+                f"Transaction verification failed: {str(e)}"
+            )
+            return False

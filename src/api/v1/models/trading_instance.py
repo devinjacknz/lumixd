@@ -34,7 +34,7 @@ class TradingInstance(BaseModel):
         "total_volume": 0.0,
         "profit_loss": 0.0
     }
-    metrics: Optional[InstanceMetrics] = None
+    metrics: InstanceMetrics = InstanceMetrics()
 
 class TradingInstanceCreate(BaseModel):
     name: str
