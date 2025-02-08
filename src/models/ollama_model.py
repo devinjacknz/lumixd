@@ -9,7 +9,9 @@ import requests
 from .base_model import BaseModel, ModelResponse
 
 class OllamaModel(BaseModel):
-    AVAILABLE_MODELS = ['deepseek-r1:1.5b']
+    @property
+    def AVAILABLE_MODELS(self):
+        return ['deepseek-r1:1.5b']
     
     def __init__(self, model_name="deepseek-r1:1.5b"):
         super().__init__()
@@ -45,6 +47,44 @@ class OllamaModel(BaseModel):
         """Generate response from Ollama model"""
         if not self.is_available():
             print("Model not initialized")
+            return None
+            
+        try:
+            data = {
+                "model": self.model_name,
+                "prompt": f"{system_prompt}\n\n{user_content}",
+                "temperature": temperature,
+                "format": "json"
+            }
+            
+            response = requests.post(self.api_url, json=data, headers=self.headers)
+            response.raise_for_status()
+            
+            content = response.json().get('response', '')
+            
+            # Try to parse JSON from response
+            try:
+                # Look for JSON-like structure
+                start_idx = content.find('{')
+                end_idx = content.rfind('}')
+                if start_idx >= 0 and end_idx > start_idx:
+                    json_str = content[start_idx:end_idx + 1]
+                    parsed_content = json.loads(json_str)
+                    return ModelResponse(
+                        content=json.dumps(parsed_content),
+                        raw_response=response.json()
+                    )
+            except json.JSONDecodeError:
+                pass
+                
+            # Return raw response if JSON parsing fails
+            return ModelResponse(
+                content=content,
+                raw_response=response.json()
+            )
+            
+        except Exception as e:
+            print(f"Error generating response: {e}")
             return None
             
     async def analyze_trade(self, instruction: str) -> dict:
@@ -157,23 +197,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }
-            
-        try:
-            data = {
-                "model": self.model_name,
-                "prompt": f"{system_prompt}\n\n{user_content}",
-                "temperature": temperature
-            }
-            
-            response = requests.post(self.api_url, json=data, headers=self.headers)
-            response.raise_for_status()
-            
-            return ModelResponse(
-                content=response.json().get('response', ''),
-                raw_response=response.json()
-            )
-            
-        except Exception as e:
-            print(f"Error generating response: {e}")
-            return None    
+            }  
