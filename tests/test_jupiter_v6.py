@@ -40,9 +40,11 @@ async def test_jupiter_v6_trading():
             self._call_count = 0
             
         async def __aenter__(self):
-            response = self.responses[min(self._call_count, len(self.responses) - 1)]
-            self._call_count += 1
-            return response
+            if self._call_count < len(self.responses):
+                response = self.responses[self._call_count]
+                self._call_count += 1
+                return response
+            return self.responses[-1]
             
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             return None
@@ -86,7 +88,11 @@ async def test_jupiter_v6_trading():
             success_response.json = AsyncMock(return_value=success_quote)
             success_response.raise_for_status = AsyncMock()
             
-            self.get_mock_responses = [error_response, success_response]
+            # Create sequence with success after error
+            self.get_mock_responses = [error_response, success_response, success_response]
+            
+            # Reset call count for each test
+            self._call_count = 0
             
             # Create response sequence for execute_swap
             self.post_responses = [
