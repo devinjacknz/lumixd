@@ -60,17 +60,28 @@ class JupiterClient:
         try:
             self._rate_limit()
             url = f"{self.base_url}/swap"
-            # Prepare swap payload with only essential parameters
             payload = {
                 "quoteResponse": quote_response,
                 "userPublicKey": wallet_pubkey,
-                "computeUnitPriceMicroLamports": 1000,
-                "wrapUnwrapSOL": True,
-                "asLegacyTransaction": True
+                "wrapUnwrapSOL": True
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
             response.raise_for_status()
+            
+            swap_response = response.json()
+            tx_data = swap_response.get('swapTransaction')
+            if not tx_data:
+                raise ValueError("No swap transaction returned")
+                
+            cprint(f"📝 Got swap transaction", "cyan")
+            signature = self._send_and_confirm_transaction(tx_data)
+            if not signature:
+                raise ValueError("Failed to send transaction")
+                
+            cprint(f"✅ Transaction confirmed: {signature}", "green")
+            cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
+            return signature
             data = response.json()
             
             unsigned_tx = data.get("swapTransaction")
