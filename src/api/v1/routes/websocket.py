@@ -3,11 +3,13 @@ WebSocket Route for Real-time Trading and Market Data
 """
 import os
 import json
+import asyncio
 from typing import Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from src.data.chainstack_client import ChainStackClient
 from src.modules.nlp_processor import NLPProcessor
 from src.data.jupiter_client import JupiterClient
+from src.models.deepseek_model import DeepSeekModel
 from solders.pubkey import Pubkey
 
 router = APIRouter()
@@ -37,7 +39,8 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
+async def websocket_endpoint(websocket: WebSocket, client_id: str | None = None):
+    """WebSocket endpoint for real-time trading and market data"""
     if not client_id:
         client_id = str(id(websocket))
     
@@ -67,7 +70,7 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
                         
                 elif message_type == "trade":
                     instruction = data.get("instruction", "")
-                    # Parse trading instruction
+                    # Parse trading instruction using DeepSeek model
                     parsed = await manager.nlp_processor.process_instruction(instruction)
                     await websocket.send_json({
                         "type": "instruction_parsed",
@@ -77,11 +80,15 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
                     # Execute trade if parsing successful
                     if "error" not in parsed:
                         params = parsed["parsed_params"]
-                        # Get quote first
-                        quote = await manager.jupiter_client.get_quote(
-                            input_mint=params["token_address"],
-                            output_mint=manager.jupiter_client.sol_token,
-                            amount=str(int(params["amount"] * 1e9))  # Convert to lamports
+                        # Get quote using Jupiter API
+                        loop = asyncio.get_event_loop()
+                        quote = await loop.run_in_executor(
+                            None,
+                            lambda: manager.jupiter_client.get_quote(
+                                input_mint=params["token_address"],
+                                output_mint=manager.jupiter_client.sol_token,
+                                amount=str(int(params["amount"] * 1e9))  # Convert to lamports
+                            )
                         )
                         
                         if quote:
@@ -97,19 +104,70 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
                             try:
                                 # Create wallet pubkey from private key
                                 wallet_pubkey = str(Pubkey.from_bytes(bytes.fromhex(private_key)))
-                                result = await manager.jupiter_client.execute_swap(
-                                    quote_response=quote,
-                                    wallet_pubkey=wallet_pubkey
+                                
+                                # Execute swap with risk control checks
+                                from src.config.settings import TRADING_CONFIG
+                                if params.get("slippage", 2.5) > TRADING_CONFIG["risk_parameters"]["max_slippage_bps"] / 100:
+                                    await websocket.send_json({
+                                        "type": "error",
+                                        "message": {
+                                            "en": "Slippage exceeds maximum allowed",
+                                            "zh": "滑点超过最大允许值"
+                                        }
+                                    })
+                                    continue
+                                
+                                # Execute swap through Jupiter
+                                loop = asyncio.get_event_loop()
+                                # Ensure quote is not None before executing swap
+                                if not quote:
+                                    await websocket.send_json({
+                                        "type": "error",
+                                        "message": {
+                                            "en": "Failed to get quote from Jupiter",
+                                            "zh": "无法从Jupiter获取报价"
+                                        }
+                                    })
+                                    continue
+                                    
+                                # Cast quote to Dict[str, Any] since we've already checked it's not None
+                                from typing import cast, Dict, Any
+                                quote_dict = cast(Dict[str, Any], quote)
+                                result = await loop.run_in_executor(
+                                    None,
+                                    lambda: manager.jupiter_client.execute_swap(
+                                        quote_response=quote_dict,
+                                        wallet_pubkey=wallet_pubkey
+                                    )
                                 )
-                                await websocket.send_json({
-                                    "type": "trade_executed",
-                                    "status": "success" if result else "failed",
-                                    "transaction_hash": result if result else None
-                                })
+                                
+                                # Send multilingual response
+                                if result:
+                                    await websocket.send_json({
+                                        "type": "trade_executed",
+                                        "status": "success",
+                                        "transaction_hash": result,
+                                        "message": {
+                                            "en": "Trade executed successfully",
+                                            "zh": "交易执行成功"
+                                        }
+                                    })
+                                else:
+                                    await websocket.send_json({
+                                        "type": "trade_executed",
+                                        "status": "failed",
+                                        "message": {
+                                            "en": "Trade execution failed",
+                                            "zh": "交易执行失败"
+                                        }
+                                    })
                             except Exception as e:
                                 await websocket.send_json({
                                     "type": "error",
-                                    "message": f"Failed to execute trade: {str(e)}"
+                                    "message": {
+                                        "en": f"Failed to execute trade: {str(e)}",
+                                        "zh": f"交易执行失败：{str(e)}"
+                                    }
                                 })
                         
                 elif message_type == "ping":
