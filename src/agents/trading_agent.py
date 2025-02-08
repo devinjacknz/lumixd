@@ -8,6 +8,7 @@ import sys
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, List
 import pandas as pd
 import numpy as np
 from termcolor import cprint
@@ -20,13 +21,14 @@ from src.strategies.snap_strategy import SnapStrategy
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
 from src.data.chainstack_client import ChainStackClient
+from src.api.v1.routes.trades import TradeRequest
 import json
 from pathlib import Path
 from src.config import (
     USDC_SIZE,
     MAX_LOSS_PERCENTAGE,
     SLIPPAGE,
-    TRADING_INTERVAL,
+    TRADE_INTERVAL,
     MIN_SOL_BALANCE,
     MIN_USDC_BALANCE,
     CREATE_ATA_IF_MISSING,
@@ -52,7 +54,8 @@ from src.nice_funcs import (
 load_dotenv()
 
 class TradingAgent:
-    def __init__(self, model_type="deepseek", model_name="deepseek-r1:1.5b"):
+    def __init__(self, instance_id: str, model_type="deepseek", model_name="deepseek-r1:1.5b"):
+        self.instance_id = instance_id
         self.model_type = model_type
         self.model_name = model_name
         self.model_factory = ModelFactory()
@@ -64,6 +67,10 @@ class TradingAgent:
         self.snap_strategy = SnapStrategy()
         self.performance_monitor = PerformanceMonitor()
         self.system_monitor = SystemMonitor(self.performance_monitor)
+        self.last_trade_time = datetime.now()
+        self.active = True
+        self.total_trades = 0
+        self.successful_trades = 0
         
     def _parse_analysis(self, response: str) -> dict:
         """Parse AI model response into structured data"""
@@ -236,56 +243,80 @@ class TradingAgent:
         except Exception as e:
             return False, f"Error checking balances: {str(e)}"
 
-    def execute_trade(self, token: str | None, direction: str, amount: float) -> bool:
-        """Execute trade based on signal"""
+    def execute_trade(self, trade_request: TradeRequest) -> Optional[str]:
+        """Execute trade based on trade request"""
+        if not self.active:
+            cprint(f"❌ Instance {self.instance_id} is not active", "red")
+            return None
         try:
-            if not token:
+            if not trade_request.output_token:
                 cprint("❌ Trade failed: No token specified", "red")
-                return False
+                return None
                 
             # Check balances first
             balances_ok, reason = self.check_balances()
             if not balances_ok:
                 cprint(f"❌ Trade failed: {reason}", "red")
-                return False
+                return None
                 
-            # Check risk limits
-            if not self._check_risk_limits():
-                cprint("❌ Trade failed: Risk limits exceeded", "red")
-                return False
+            # Get current positions and calculate total position value
+            positions_df = fetch_wallet_holdings_og(os.getenv("WALLET_ADDRESS", ""))
+            total_position = positions_df['USD Value'].sum()
+            max_trade_size = float(os.getenv("SOL_BALANCE", "0")) * self.max_position_size
+            
+            # Check if new trade would exceed max position size
+            if total_position + trade_request.amount_sol > max_trade_size:
+                cprint(f"❌ Trade would exceed max position size of {max_trade_size} SOL", "red")
+                return None
                 
             jupiter = JupiterClient()
-            jupiter.slippage_bps = SLIPPAGE
             
             # Calculate SOL amount for trade
-            trade_amount = min(amount, MAX_ORDER_SIZE_SOL)
+            trade_amount = min(trade_request.amount_sol, MAX_ORDER_SIZE_SOL)
             client = ChainStackClient()
             start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
             
-            if direction == 'BUY':
-                success = market_buy(str(token), trade_amount, SLIPPAGE)
-            elif direction == 'SELL':
-                success = market_sell(str(token), trade_amount, SLIPPAGE)
-            else:
-                return False
+            # Get quote with optimized parameters
+            quote = jupiter.get_quote(
+                trade_request.input_token,
+                trade_request.output_token,
+                str(int(trade_amount * 1e9)),
+                use_shared_accounts=trade_request.use_shared_accounts,
+                force_simpler_route=trade_request.force_simpler_route
+            )
+            if not quote:
+                cprint("❌ Failed to get quote", "red")
+                return None
                 
-            if success:
+            # Execute swap
+            signature = jupiter.execute_swap(
+                quote,
+                os.getenv("WALLET_ADDRESS"),
+                use_shared_accounts=trade_request.use_shared_accounts
+            )
+                
+            if signature:
                 end_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
-                gas_cost = start_balance - end_balance - (trade_amount if direction == 'SELL' else 0)
-                self.performance_monitor.log_trade_metrics({
-                    'token': token,
-                    'direction': direction,
+                gas_cost = start_balance - end_balance - trade_amount
+                metrics = {
+                    'instance_id': self.instance_id,
+                    'token': trade_request.output_token,
+                    'direction': 'BUY',
                     'amount': trade_amount,
                     'execution_time': 0,  # Will be set by caller
-                    'slippage': self.slippage * 100,
+                    'slippage': trade_request.slippage_bps / 100,
                     'gas_cost': gas_cost,
                     'success': True
-                })
+                }
+                self.performance_monitor.log_trade_metrics(metrics)
+                self.total_trades += 1
+                self.successful_trades += 1
+                self.last_trade_time = datetime.now()
                 
-            return success
+            return signature
         except Exception as e:
-            print(f"Error executing trade: {e}")
-            return False
+            cprint(f"❌ Error executing trade: {str(e)}", "red")
+            return None
             
     def check_circuit_breakers(self, trade_data: dict) -> tuple[bool, str]:
         """Check multi-layer circuit breakers"""
@@ -413,23 +444,67 @@ class TradingAgent:
                 'metadata': {}
             }
 
-    def run(self):
-        """Main processing loop"""
-        cprint("\n🚀 Trading Agent starting...", "cyan")
-        cprint("✨ Using DeepSeek R1 1.5b model for analysis", "cyan")
-        cprint(f"⏱️ Trading interval: {TRADING_INTERVAL} minutes", "cyan")
-        cprint(f"💰 Trade size: {MIN_TRADE_SIZE_SOL} SOL", "cyan")
-        cprint(f"🎯 Focus tokens: {', '.join(FOCUS_TOKENS)}", "cyan")
+    def update_config(self, config: Dict[str, Any]) -> None:
+        self.min_trade_size = config.get('amount_sol', MIN_TRADE_SIZE_SOL)
+        self.max_position_size = config.get('max_position_size', 0.20)
+        self.cash_buffer = config.get('cash_buffer', 0.30)
+        self.slippage = config.get('slippage_bps', SLIPPAGE)
+        self.strategy_params = config.get('strategy_params', {})
         
-        last_trade_time = datetime.now() - timedelta(minutes=TRADING_INTERVAL)
+    def apply_strategy(self, strategy_name: str, strategy_params: Dict[str, Any]) -> None:
+        self.strategy_params = strategy_params
+        if strategy_name == 'snap':
+            self.snap_strategy = SnapStrategy(**strategy_params)
+        # Additional strategies can be added here
+
+    def toggle_active(self) -> bool:
+        self.active = not self.active
+        return self.active
+
+    def get_instance_metrics(self) -> Dict[str, Any]:
+        return {
+            'instance_id': self.instance_id,
+            'total_trades': self.total_trades,
+            'successful_trades': self.successful_trades,
+            'success_rate': f"{(self.successful_trades / self.total_trades * 100):.1f}%" if self.total_trades > 0 else "0%",
+            'last_trade_time': self.last_trade_time.isoformat() if self.last_trade_time else None,
+            'active': self.active,
+            'configuration': {
+                'min_trade_size': self.min_trade_size,
+                'max_position_size': self.max_position_size,
+                'cash_buffer': self.cash_buffer,
+                'slippage': self.slippage
+            }
+        }
+
+    def run(self, instance_config: Optional[Dict[str, Any]] = None):
+        """Main processing loop with instance-specific configuration"""
+        if not instance_config:
+            instance_config = {}
+            
+        trading_interval = instance_config.get('interval_minutes', TRADE_INTERVAL)
+        trade_size = instance_config.get('amount_sol', MIN_TRADE_SIZE_SOL)
+        focus_tokens = instance_config.get('tokens', FOCUS_TOKENS)
+        
+        cprint(f"\n🚀 Trading Agent starting for instance {self.instance_id}...", "cyan")
+        cprint(f"✨ Using {self.model_name} model for analysis", "cyan")
+        cprint(f"⏱️ Trading interval: {trading_interval} minutes", "cyan")
+        cprint(f"💰 Trade size: {trade_size} SOL", "cyan")
+        cprint(f"🎯 Focus tokens: {', '.join(focus_tokens)}", "cyan")
+        
+        last_trade_time = datetime.now() - timedelta(minutes=trading_interval)
         
         try:
             while True:
                 # Check system health
                 self.system_monitor.check_system_health()
                 
-                for token in FOCUS_TOKENS:
+                for token in instance_config.get('tokens', FOCUS_TOKENS):
                     try:
+                        if not self.active:
+                            cprint(f"⏹️ Instance {self.instance_id} stopped", "yellow")
+                            return
+                            
                         # Get market data
                         token_data = self.get_token_data(token)
                         if not token_data:
@@ -440,17 +515,21 @@ class TradingAgent:
                         
                         # Execute trade if signal is strong
                         if analysis['confidence'] > 0.7 and analysis['action'] != 'NEUTRAL':
-                            trade_size = MIN_TRADE_SIZE_SOL
+                            trade_size = instance_config.get('amount_sol', MIN_TRADE_SIZE_SOL)
                             if analysis['metadata'].get('params'):
                                 params = analysis['metadata']['params']
-                                trade_size *= params.get('size', 1.0)
+                                trade_size *= min(params.get('size', 1.0), instance_config.get('max_position_multiplier', 1.0))
                                 
                             start_time = time.time()
-                            success = self.execute_trade(
-                                token=token,
-                                direction=analysis['action'],
-                                amount=trade_size
+                            trade_request = TradeRequest(
+                                input_token="So11111111111111111111111111111111111111112",
+                                output_token=token,
+                                amount_sol=trade_size,
+                                slippage_bps=self.slippage,
+                                use_shared_accounts=True,
+                                force_simpler_route=True
                             )
+                            success = self.execute_trade(trade_request)
                             execution_time = int((time.time() - start_time) * 1000)
                             
                             self.performance_monitor.log_trade_metrics({
@@ -498,7 +577,7 @@ class TradingAgent:
                     if health_metrics.get('cpu_usage', 0) > 80:
                         cprint("⚠️ High CPU usage detected!", "yellow")
                         
-                time.sleep(TRADING_INTERVAL * 60)
+                time.sleep(TRADE_INTERVAL)
                 
         except KeyboardInterrupt:
             print("\nTrading Agent shutting down...")

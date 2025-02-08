@@ -129,3 +129,44 @@ A real-time trading system powered by Chainstack RPC and Jupiter V6 Swap API for
 
 ## License
 MIT License
+
+## Multi-Instance Trading Support / 多实例交易支持
+
+The system supports running multiple trading instances simultaneously, each with its own strategy, token pairs, and balance allocation. See [Multi-Instance Guide](docs/multi_instance_guide.md) for details.
+
+Key features:
+- Independent trading strategies per instance
+- Isolated balance tracking
+- Custom risk parameters
+- Real-time performance monitoring
+- Instance-specific metrics
+
+## API Documentation / API文档
+
+### Instance API / 实例API
+- POST /api/v1/instances/create - Create trading instance / 创建交易实例
+- GET /api/v1/instances/list - List all instances / 列出所有实例
+- GET /api/v1/instances/{id} - Get instance details / 获取实例详情
+- PUT /api/v1/instances/{id}/update - Update instance / 更新实例
+- POST /api/v1/instances/{id}/toggle - Toggle instance / 切换实例状态
+- GET /api/v1/instances/{id}/metrics - Get instance metrics / 获取实例指标
+- GET /api/v1/instances/{id}/performance - Get instance performance / 获取实例性能
+
+### Trading API / 交易API
+- POST /api/v1/trades/execute - Execute trade / 执行交易
+- GET /api/v1/trades/history - Get trade history / 获取交易历史
+- GET /api/v1/trades/status - Get trading status / 获取交易状态
+
+### Strategy API / 策略API
+- POST /api/v1/strategies/create - Create custom strategy / 创建自定义策略
+- GET /api/v1/strategies/list - List all strategies / 列出所有策略
+- PUT /api/v1/strategies/{id}/update - Update strategy / 更新策略
+- POST /api/v1/strategies/{id}/execute - Execute strategy / 执行策略
+
+### Configuration API / 配置API
+- GET /api/v1/config - Get system config / 获取系统配置
+- PUT /api/v1/config/update - Update config / 更新配置
+
+### Monitoring API / 监控API
+- GET /api/v1/monitor/health - System health / 系统健康
+- GET /api/v1/monitor/performance - Performance metrics / 性能指标

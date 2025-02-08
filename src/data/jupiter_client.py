@@ -10,6 +10,9 @@ from solders.keypair import Keypair
 from solders.transaction import Transaction
 from solders.hash import Hash
 from solders.message import Message
+from solders.pubkey import Pubkey as PublicKey
+from solders.instruction import AccountMeta, Instruction as TransactionInstruction
+from solders.compute_budget import set_compute_unit_limit, set_compute_unit_price
 from dotenv import load_dotenv
 
 os.makedirs("logs", exist_ok=True)
@@ -39,15 +42,15 @@ class JupiterClient:
     def get_quote(self, input_mint: str, output_mint: str, amount: str, use_shared_accounts: bool = True, force_simpler_route: bool = True) -> Optional[Dict]:
         try:
             self._rate_limit()
-            url = f"{self.base_url}/quote"
+            url = f"{self.base_url}/v6/quote"
             params = {
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250,
-                "platformFeeBps": 0,
-                "useSharedAccounts": use_shared_accounts,
-                "forceSimplestRoute": force_simpler_route
+                "slippageBps": 50,
+                "onlyDirectRoutes": True,
+                "asLegacyTransaction": True,
+                "wrapUnwrapSOL": True
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
@@ -62,87 +65,155 @@ class JupiterClient:
     def execute_swap(self, quote_response: Dict, wallet_pubkey: str, use_shared_accounts: bool = True) -> Optional[str]:
         try:
             self._rate_limit()
-            url = f"{self.base_url}/swap"
-            payload = {
-                "quoteResponse": quote_response,
-                "userPublicKey": wallet_pubkey,
-                "wrapUnwrapSOL": True,
-                "computeUnitPriceMicroLamports": 1000,
-                "asLegacyTransaction": True,
-                "useSharedAccounts": use_shared_accounts,
-                "dynamicComputeUnitLimit": True,
-                "maxRetries": 3,
-                "skipPreflight": True
-            }
-            cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
-            response = requests.post(url, headers=self.headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            
-            unsigned_tx = data.get("swapTransaction")
-            if not unsigned_tx:
-                cprint("❌ No swap transaction received", "red")
-                return None
-                
+            cprint(f"🔄 Requesting swap with optimized parameters", "cyan")
+            # Get swap transaction with minimal parameters
             response = requests.post(
-                self.rpc_url,
+                f"{self.base_url}/swap",
                 headers=self.headers,
                 json={
-                    "jsonrpc": "2.0",
-                    "id": "get-blockhash",
-                    "method": "getLatestBlockhash",
-                    "params": [{"commitment": "finalized"}]
-                }
-            )
-            response.raise_for_status()
-            blockhash_data = response.json().get("result", {}).get("value", {})
-            if not blockhash_data or "blockhash" not in blockhash_data:
-                cprint("❌ Failed to get blockhash", "red")
-                return None
-                
-            wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx_bytes = base64.b64decode(unsigned_tx)
-            tx = Transaction.from_bytes(tx_bytes)
-            blockhash = Hash.from_string(blockhash_data["blockhash"])
-            tx.sign([wallet_key], blockhash)
-            
-            signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
-            cprint(f"📝 Signed transaction: {signed_tx[:64]}...", "cyan")
-            
-            response = requests.post(
-                self.rpc_url,
-                headers=self.headers,
-                json={
-                    "jsonrpc": "2.0",
-                    "id": "submit-tx",
-                    "method": "sendTransaction",
-                    "params": [
-                        signed_tx,
-                        {
-                            "encoding": "base64",
-                            "maxRetries": 3,
-                            "skipPreflight": True,
-                            "preflightCommitment": "finalized",
-                            "minContextSlot": quote_response.get("contextSlot")
+                    "quoteResponse": quote_response,
+                    "userPublicKey": wallet_pubkey,
+                    "wrapUnwrapSOL": True,
+                    "useSharedAccounts": True,
+                    "computeUnitPriceMicroLamports": 1000,
+                    "asLegacyTransaction": True,
+                    "dynamicComputeUnitLimit": True,
+                    "prioritizationFeeLamports": {
+                        "priorityLevelWithMaxLamports": {
+                            "maxLamports": 10000000,
+                            "priorityLevel": "veryHigh"
                         }
-                    ]
-                }
-            )
+                    }
+                },
+                timeout=60)
             response.raise_for_status()
-            data = response.json()
+            tx_data = response.json().get("swapTransaction")
+            if not tx_data:
+                raise ValueError("No swap transaction returned")
+
+            try:
+                private_key = os.getenv("SOLANA_PRIVATE_KEY")
+                if not private_key:
+                    raise ValueError("SOLANA_PRIVATE_KEY environment variable is required")
+                    
+                wallet_key = Keypair.from_base58_string(private_key)
+                if not wallet_key:
+                    raise ValueError("Invalid wallet key")
+                    
+                if not tx_data:
+                    raise ValueError("No transaction data received")
+                    
+                # Get recent blockhash
+                response = requests.post(
+                    self.rpc_url,
+                    headers=self.headers,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": "get-blockhash",
+                        "method": "getLatestBlockhash",
+                        "params": [{"commitment": "finalized"}]
+                    }
+                )
+                response.raise_for_status()
+                blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
+                if not blockhash:
+                    raise ValueError("Failed to get blockhash")
+
+                # Initialize retry variables
+                retry_count = 0
+                max_retries = 3
+                retry_delay = 1
+                
+                # Get swap transaction
+                swap_response = requests.post(
+                    f"{self.base_url}/v6/swap",
+                    headers=self.headers,
+                    json={
+                        "quoteResponse": quote_response,
+                        "userPublicKey": wallet_pubkey,
+                        "wrapUnwrapSOL": True,
+                        "asLegacyTransaction": True,
+                        "onlyDirectRoutes": True,
+                        "skipPreflight": True,
+                        "slippageBps": 250,
+                        "swapMode": "ExactIn",
+                        "computeUnitPriceMicroLamports": 1000,
+                        "computeUnitLimit": 1400000,
+                        "useTokenLedger": False,
+                        "destinationTokenAccount": None,
+                        "dynamicComputeUnitLimit": False,
+                        "useSharedAccounts": True,
+                        "maxAccounts": 54,
+                        "platformFeeBps": 0,
+                        "minContextSlot": None,
+                        "strictValidation": True,
+                        "prioritizationFeeLamports": 10000,
+                        "useVersionedTransaction": False
+                    }
+                )
+                cprint("🔄 Got swap response", "cyan")
+                swap_response.raise_for_status()
+                tx_data = swap_response.json().get("swapTransaction")
+                if not tx_data:
+                    raise ValueError("No swap transaction returned")
+                swap_response.raise_for_status()
+                tx_data = swap_response.json().get("swapTransaction")
+                if not tx_data:
+                    raise ValueError("No swap transaction returned")
+                    
+                signed_tx = tx_data
+                cprint("✅ Using pre-signed transaction from Jupiter", "green")
+                cprint("🔄 Sending transaction to RPC...", "cyan")
+                
+                while retry_count < max_retries:
+                    try:
+                        response = requests.post(
+                            self.rpc_url,
+                            headers=self.headers,
+                            json={
+                                "jsonrpc": "2.0",
+                                "id": "send-tx",
+                                "method": "sendTransaction",
+                                "params": [
+                                    signed_tx,
+                                    {
+                                        "encoding": "base64",
+                                        "skipPreflight": True,
+                                        "preflightCommitment": "confirmed"
+                                    }
+                                ]
+                            },
+                            timeout=60
+                        )
+                        response.raise_for_status()
+                        result = response.json()
+                        
+                        if "error" in result:
+                            cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
+                            return None
+                            
+                        signature = result.get("result")
+                        if signature and self.monitor_transaction(signature):
+                            cprint(f"✅ Transaction confirmed: {signature}", "green")
+                            cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
+                            return signature
+                        return None
+                    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            cprint(f"⚠️ RPC request failed (attempt {retry_count}): {str(e)}", "yellow")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2
+                        else:
+                            raise Exception(f"Failed to send transaction after {max_retries} retries: {str(e)}")
+                    except Exception as e:
+                        raise Exception(f"Failed to send transaction: {str(e)}")
+            except Exception as e:
+                cprint(f"❌ Failed to sign transaction: {str(e)}", "red")
+                return None
             
-            if "error" in data:
-                cprint(f"❌ RPC error: {json.dumps(data['error'], indent=2)}", "red")
-                return None
-                
-            signature = data.get("result")
-            if not signature:
-                cprint("❌ No transaction signature received", "red")
-                return None
-                
-            if signature and self.monitor_transaction(signature):
-                return signature
             return None
+
             
         except Exception as e:
             cprint(f"❌ Failed to execute swap: {str(e)}", "red")
@@ -229,8 +300,36 @@ class JupiterClient:
             cprint(f"❌ Failed to create token account: {str(e)}", "red")
             return None
 
-    def _send_and_confirm_transaction(self, tx: Transaction) -> Optional[str]:
+    def _send_and_confirm_transaction(self, tx_data: str) -> Optional[str]:
         try:
+            # Load private key
+            wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
+            
+            # Decode base64 transaction
+            tx_bytes = base64.b64decode(tx_data)
+            tx = Transaction.from_bytes(tx_bytes)
+            
+            # Get recent blockhash
+            response = requests.post(
+                self.rpc_url,
+                headers=self.headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "get-blockhash",
+                    "method": "getLatestBlockhash",
+                    "params": [{"commitment": "finalized"}]
+                }
+            )
+            response.raise_for_status()
+            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
+            if not blockhash:
+                raise ValueError("Failed to get blockhash")
+                
+            # Sign transaction
+            tx.sign([wallet_key], Hash.from_string(blockhash))
+            signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
+            
+            # Send transaction
             response = requests.post(
                 self.rpc_url,
                 headers=self.headers,
@@ -239,7 +338,7 @@ class JupiterClient:
                     "id": "send-tx",
                     "method": "sendTransaction",
                     "params": [
-                        base64.b64encode(bytes(tx)).decode('utf-8'),
+                        signed_tx,
                         {
                             "encoding": "base64",
                             "maxRetries": 3,
@@ -249,7 +348,14 @@ class JupiterClient:
                     ]
                 }
             )
-            signature = response.json().get("result")
+            response.raise_for_status()
+            result = response.json()
+            
+            if "error" in result:
+                cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
+                return None
+                
+            signature = result.get("result")
             if signature and self.monitor_transaction(signature):
                 return signature
             return None
