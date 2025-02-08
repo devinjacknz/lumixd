@@ -7,7 +7,7 @@ import base64
 from datetime import datetime
 from termcolor import cprint
 from solders.keypair import Keypair
-from solders.transaction import Transaction
+from solders.transaction import Transaction, VersionedTransaction
 from solders.hash import Hash
 from solders.message import Message
 from dotenv import load_dotenv
@@ -124,30 +124,34 @@ class JupiterClient:
             if not blockhash:
                 raise ValueError("Failed to get blockhash")
                 
-            # Create and sign transaction
+            # Get swap transaction
+            response = requests.post(
+                f"{self.base_url}/swap",
+                headers=self.headers,
+                json={
+                    "quoteResponse": quote_response,
+                    "userPublicKey": wallet_pubkey,
+                    "wrapUnwrapSOL": True,
+                    "computeUnitPriceMicroLamports": 1000,
+                    "useSharedAccounts": True,
+                    "dynamicComputeUnitLimit": True,
+                    "prioritizationFeeLamports": {
+                        "priorityLevelWithMaxLamports": {
+                            "maxLamports": 10000000,
+                            "priorityLevel": "veryHigh"
+                        }
+                    }
+                }
+            )
+            response.raise_for_status()
+            tx_data = response.json().get("swapTransaction")
+            if not tx_data:
+                raise ValueError("No swap transaction returned")
+                
+            # Sign transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx = Transaction()
-            tx.recent_blockhash = Hash.from_string(blockhash)
-            tx.fee_payer = wallet_key.public_key
-            
-            # Add compute budget instructions
-            if instructions.get("computeBudgetInstructions"):
-                for ix in instructions["computeBudgetInstructions"]:
-                    tx.add(Transaction.from_bytes(base64.b64decode(ix["data"])))
-            
-            # Add setup instructions
-            if instructions.get("setupInstructions"):
-                for ix in instructions["setupInstructions"]:
-                    tx.add(Transaction.from_bytes(base64.b64decode(ix["data"])))
-            
-            # Add swap instruction
-            if instructions.get("swapInstruction"):
-                tx.add(Transaction.from_bytes(base64.b64decode(instructions["swapInstruction"]["data"])))
-            
-            # Add cleanup instruction
-            if instructions.get("cleanupInstruction"):
-                tx.add(Transaction.from_bytes(base64.b64decode(instructions["cleanupInstruction"]["data"])))
-            
+            tx_bytes = base64.b64decode(tx_data)
+            tx = VersionedTransaction.deserialize(tx_bytes)
             tx.sign([wallet_key])
             signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
             
