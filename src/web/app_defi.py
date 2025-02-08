@@ -1,42 +1,143 @@
 """
-Solana DeFi Agent Web Application
+Solana DeFi Agent Web Application with WebSocket Support
 """
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
+import os
+import json
+import redis.asyncio as redis
+from src.data.chainstack_client import ChainStackClient
+from src.services.logging_service import logging_service
 
-from flask import Flask, render_template
-from flask_cors import CORS
-from src.web.routes.defi_routes import defi
+# Bilingual error messages
+ERROR_MESSAGES = {
+    'server_error': {
+        'en': 'Internal server error',
+        'zh': '服务器内部错误'
+    },
+    'websocket_error': {
+        'en': 'WebSocket connection error',
+        'zh': 'WebSocket连接错误'
+    },
+    'redis_error': {
+        'en': 'Redis connection error',
+        'zh': 'Redis连接错误'
+    }
+}
 
-app = Flask(__name__)
-app.config['PREFERRED_URL_SCHEME'] = 'https'
-app.config['PROXY_FIX_X_PROTO'] = 1
-app.config['PROXY_FIX_X_HOST'] = 1
-app.config['PROXY_FIX_X_PREFIX'] = 1
+app = FastAPI()
+chainstack_client = ChainStackClient()
 
-from werkzeug.middleware.proxy_fix import ProxyFix
-app.wsgi_app = ProxyFix(
-    app.wsgi_app,
-    x_proto=1,
-    x_host=1,
-    x_prefix=1
+# Setup Redis for real-time updates
+redis_client = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379'))
+
+# Setup templates
+templates = Jinja2Templates(directory="src/web/templates")
+app.mount("/static", StaticFiles(directory="src/web/static"), name="static")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
 )
 
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["https://pr-playbook-app-tunnel-jncimc99.devinapps.com"],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "X-User-ID", "X-Wallet-Key", "Authorization"],
-        "supports_credentials": True
-    }
-})
-
-# Register blueprints
-app.register_blueprint(defi)
-
-@app.route('/')
-def index():
+@app.get("/", response_class=HTMLResponse)
+async def index(request):
     """Serve the main DeFi agent interface"""
-    return render_template('defi_agent.html')
+    return templates.TemplateResponse(
+        "defi_agent.html",
+        {"request": request}
+    )
 
-if __name__ == '__main__':
-    from waitress import serve
-    serve(app, host='0.0.0.0', port=8080)
+@app.websocket("/ws/price_updates")
+async def price_updates(websocket: WebSocket):
+    """Handle real-time price updates via WebSocket"""
+    await websocket.accept()
+    
+    try:
+        while True:
+            # Get token address from client
+            token_address = await websocket.receive_text()
+            
+            try:
+                # Get token data from Chainstack
+                price_data = await chainstack_client.get_token_data(token_address)
+                
+                # Cache price data in Redis
+                await redis_client.setex(
+                    f"price:{token_address}",
+                    300,  # 5 minutes TTL
+                    json.dumps(price_data)
+                )
+                
+                # Send price update to client
+                await websocket.send_json({
+                    "type": "price_update",
+                    "data": price_data
+                })
+                
+                # Log successful update
+                await logging_service.log_user_action(
+                    'price_update',
+                    {
+                        'token_address': token_address,
+                        'price': price_data.get('price'),
+                        'timestamp': price_data.get('timestamp')
+                    },
+                    'system'
+                )
+                
+            except Exception as e:
+                error_msg = ERROR_MESSAGES['server_error']
+                await logging_service.log_error(
+                    f"{error_msg['zh']} | {error_msg['en']}",
+                    {
+                        'error': str(e),
+                        'token_address': token_address
+                    },
+                    'system'
+                )
+                
+                # Send error to client
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"{error_msg['zh']} | {error_msg['en']}"
+                })
+                
+    except WebSocketDisconnect:
+        await logging_service.log_user_action(
+            'websocket_disconnect',
+            {'message': 'WebSocket disconnected normally'},
+            'system'
+        )
+        
+    except Exception as e:
+        error_msg = ERROR_MESSAGES['websocket_error']
+        await logging_service.log_error(
+            f"{error_msg['zh']} | {error_msg['en']}",
+            {'error': str(e)},
+            'system'
+        )
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize Redis connection on startup"""
+    try:
+        await redis_client.ping()
+    except Exception as e:
+        error_msg = ERROR_MESSAGES['redis_error']
+        await logging_service.log_error(
+            f"{error_msg['zh']} | {error_msg['en']}",
+            {'error': str(e)},
+            'system'
+        )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8082)
