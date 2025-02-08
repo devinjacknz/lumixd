@@ -60,19 +60,13 @@ class JupiterClient:
         try:
             self._rate_limit()
             url = f"{self.base_url}/swap"
-            # Prepare swap payload according to Jupiter API v6 spec
+            # Prepare swap payload with only essential parameters
             payload = {
                 "quoteResponse": quote_response,
                 "userPublicKey": wallet_pubkey,
-                "wrapUnwrapSOL": True,
                 "computeUnitPriceMicroLamports": 1000,
-                "asLegacyTransaction": True,
-                "useTokenLedger": True,
-                "destinationTokenAccount": None,
-                "feeConfig": {
-                    "feeBps": 0,
-                    "feeCollectorAddress": None
-                }
+                "wrapUnwrapSOL": True,
+                "asLegacyTransaction": True
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
