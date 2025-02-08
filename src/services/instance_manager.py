@@ -1,6 +1,66 @@
 from typing import Dict, Optional, List
 from datetime import datetime
+from typing import Dict, Any, Optional, List
+from datetime import datetime
+from decimal import Decimal
+from termcolor import cprint
 from src.agents.trading_agent import TradingAgent
+from src.api.v1.models.trading_instance import TradingInstance
+
+class InstanceManager:
+    def __init__(self):
+        self.instances: Dict[str, TradingInstance] = {}
+        self.agents: Dict[str, TradingAgent] = {}
+        self.next_id = 1
+        
+    def create_instance(self, config: Dict[str, Any]) -> Optional[str]:
+        try:
+            instance_id = f"instance_{self.next_id}"
+            self.next_id += 1
+            
+            instance = TradingInstance(
+                id=instance_id,
+                name=config['name'],
+                description=config.get('description', ''),
+                strategy_id=config.get('strategy_id', 'default'),
+                tokens=config['tokens'],
+                amount_sol=float(config['amount_sol']),
+                parameters=config.get('parameters', {}),
+                active=True
+            )
+            self.agents[instance_id] = TradingAgent(instance_id, config)
+            self.instances[instance_id] = instance
+            
+            cprint(f"✅ Created instance {instance.name} ({instance_id})", "green")
+            return instance_id
+        except Exception as e:
+            cprint(f"❌ Failed to create instance: {str(e)}", "red")
+            return None
+            
+    def get_instance(self, instance_id: str) -> Optional[TradingInstance]:
+        return self.instances.get(instance_id)
+        
+    def list_instances(self) -> List[str]:
+        return list(self.instances.keys())
+        
+    def get_instance_metrics(self, instance_id: str) -> Dict[str, Any]:
+        instance = self.instances.get(instance_id)
+        agent = self.agents.get(instance_id)
+        if not instance or not agent:
+            return {}
+        return {
+            'instance': instance.metrics.dict() if instance.metrics else {},
+            'agent': agent.get_instance_metrics()
+        }
+        
+    def update_instance_metrics(self, instance_id: str, metrics: Dict[str, Any]) -> bool:
+        instance = self.instances.get(instance_id)
+        if not instance:
+            return False
+            
+        if instance.metrics:
+            instance.metrics.update(metrics)
+        return True
 from src.api.v1.models.trading_instance import TradingInstance
 from src.monitoring.performance_monitor import PerformanceMonitor
 from src.monitoring.system_monitor import SystemMonitor
