@@ -39,7 +39,7 @@ class PerformanceMonitor:
         logger.setLevel(logging.INFO)
         return logger
         
-    def log_trade_metrics(self, metrics: Dict[str, Any]):
+    async def log_trade_metrics(self, metrics: Dict[str, Any]):
         self.metrics['trades_executed'] += 1
         if metrics.get('success', False):
             self.metrics['successful_trades'] += 1
