@@ -43,13 +43,8 @@ async def test_jupiter_v6_trading():
             self._call_count += 1
             if self._call_count <= len(self.responses):
                 response = self.responses[self._call_count - 1]
-                if response.status >= 500:
-                    await response.raise_for_status()
                 return response
-            response = self.responses[-1]
-            if response.status >= 500:
-                await response.raise_for_status()
-            return response
+            return self.responses[-1]
             
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             return None
@@ -78,8 +73,35 @@ async def test_jupiter_v6_trading():
             swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
             swap_success_response.raise_for_status = AsyncMock()
             
-            self.get_responses = [error_response, error_response, success_response]
-            self.post_responses = [swap_error_response, swap_success_response]
+            # Create response sequence for get_quote
+            self.get_responses = [
+                (429, {"error": "Too many requests"}),  # First attempt fails
+                (429, {"error": "Too many requests"}),  # Second attempt fails
+                (200, MOCK_RESPONSES['quote'])  # Third attempt succeeds
+            ]
+            
+            # Create response sequence for execute_swap
+            self.post_responses = [
+                (429, {"error": "Too many requests"}),  # First attempt fails
+                (200, MOCK_RESPONSES['swap'])  # Second attempt succeeds
+            ]
+            
+            # Create mock responses
+            self.get_mock_responses = []
+            for status, data in self.get_responses:
+                response = AsyncMock()
+                response.status = status
+                response.json = AsyncMock(return_value=data)
+                response.raise_for_status = AsyncMock()
+                self.get_mock_responses.append(response)
+                
+            self.post_mock_responses = []
+            for status, data in self.post_responses:
+                response = AsyncMock()
+                response.status = status
+                response.json = AsyncMock(return_value=data)
+                response.raise_for_status = AsyncMock()
+                self.post_mock_responses.append(response)
             
         async def __aenter__(self):
             return self
@@ -88,10 +110,10 @@ async def test_jupiter_v6_trading():
             return None
             
         def get(self, *args, **kwargs):
-            return MockResponse(self.get_responses)
+            return MockResponse(self.get_mock_responses)
             
         def post(self, *args, **kwargs):
-            return MockResponse(self.post_responses)
+            return MockResponse(self.post_mock_responses)
             
     # Patch ClientSession with our mock
     mock_session = MockClientSession()
