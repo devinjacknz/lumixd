@@ -88,7 +88,7 @@ class TokenInfoModule:
             cprint(f"❌ Failed to calculate liquidity score: {str(e)}", "red")
             return 0.0
             
-    async def get_token_history(self, token_address: str, days: int = 7) -> pd.DataFrame:
+    async def get_token_history(self, token_address: str, days: int = 7) -> Dict:
         """Get token trading history"""
         try:
             # Get historical token data
