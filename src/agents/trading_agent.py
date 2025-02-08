@@ -22,6 +22,7 @@ from decimal import Decimal
 from datetime import datetime
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
+from src.data.raydium_client import RaydiumClient
 from src.data.chainstack_client import ChainStackClient
 from src.strategies.snap_strategy import SnapStrategy
 from src.monitoring.performance_monitor import PerformanceMonitor
@@ -80,11 +81,11 @@ class TradingAgent:
         
         # Initialize trading components
         self.jupiter_client = JupiterClient()
+        self.raydium_client = RaydiumClient()
         self.chainstack_client = ChainStackClient()
         self.sol_token = "So11111111111111111111111111111111111111112"
         
         # Initialize position tracking
-        self.chainstack_client = ChainStackClient()
         self.positions: Dict[str, float] = {}
         
     def _parse_analysis(self, response: str) -> dict:
@@ -224,8 +225,24 @@ class TradingAgent:
             values[token] = size * price
         return values
             
+    async def get_token_price_raydium(self, token_address: str) -> Optional[Decimal]:
+        """Get token price from Raydium
+        
+        Args:
+            token_address: Token mint address
+            
+        Returns:
+            Token price as Decimal or None if error occurs
+        """
+        try:
+            async with RaydiumClient() as client:
+                return await client.get_token_price(token_address)
+        except Exception as e:
+            cprint(f"❌ Failed to get Raydium token price: {str(e)}", "red")
+            return None
+            
     async def get_token_price(self, token: str) -> float:
-        """Get token price in SOL"""
+        """Get token price in SOL using Jupiter"""
         try:
             quote = self.jupiter_client.get_quote(
                 input_mint=token,

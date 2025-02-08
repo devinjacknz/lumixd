@@ -47,6 +47,15 @@ TRADING_CONFIG: Dict[str, Any] = {
 }
 
 # Environment Variables / 环境变量
+# Raydium Configuration / Raydium配置
+RAYDIUM_CONFIG = {
+    "enabled": True,
+    "base_url": "https://api-v3.raydium.io",
+    "retry_attempts": 3,
+    "retry_delay": 1.0,
+    "timeout": 30
+}
+
 REQUIRED_ENV_VARS = [
     "SOLANA_PRIVATE_KEY",
     "WALLET_ADDRESS",
