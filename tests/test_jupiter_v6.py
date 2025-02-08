@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import time
+import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from dotenv import load_dotenv
 from src.data.jupiter_client import JupiterClient
@@ -18,16 +19,18 @@ MOCK_RESPONSES = {
         "outAmount": "20000000",
         "otherAmountThreshold": "19800000",
         "swapMode": "ExactIn",
-        "slippageBps": 200,
+        "slippageBps": 250,
         "platformFee": None,
         "priceImpactPct": 0.1
     },
     'swap': {
         "swapTransaction": "base64_encoded_transaction",
-        "lastValidBlockHeight": 123456789
+        "lastValidBlockHeight": 123456789,
+        "result": "test_signature_123"  # Jupiter v6 API returns signature in result field
     }
 }
 
+@pytest.mark.asyncio
 async def test_jupiter_v6_trading():
     """Test Jupiter v6 API trading functionality"""
     # Create client with mocked dependencies
@@ -51,53 +54,81 @@ async def test_jupiter_v6_trading():
             
     class MockClientSession:
         def __init__(self):
-            # Create get responses
-            error_response = AsyncMock()
-            error_response.status = 429
-            error_response.json = AsyncMock(return_value={"error": "Too many requests"})
-            error_response.raise_for_status = AsyncMock()
+            # Create mock responses
+            self.error_response = AsyncMock()
+            self.error_response.status = 429
+            self.error_response.json = AsyncMock(return_value={"error": "Too many requests"})
+            self.error_response.raise_for_status = AsyncMock()
             
-            success_response = AsyncMock()
-            success_response.status = 200
-            success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
-            success_response.raise_for_status = AsyncMock()
+            self.success_response = AsyncMock()
+            self.success_response.status = 200
+            self.success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
+            self.success_response.raise_for_status = AsyncMock()
             
-            # Create post responses
-            swap_error_response = AsyncMock()
-            swap_error_response.status = 429
-            swap_error_response.json = AsyncMock(return_value={"error": "Too many requests"})
-            swap_error_response.raise_for_status = AsyncMock()
+            self.swap_error = AsyncMock()
+            self.swap_error.status = 429
+            self.swap_error.json = AsyncMock(return_value={"error": "Too many requests"})
+            self.swap_error.raise_for_status = AsyncMock()
             
-            swap_success_response = AsyncMock()
-            swap_success_response.status = 200
-            swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
-            swap_success_response.raise_for_status = AsyncMock()
+            # First response is for getting swap transaction
+            self.swap_success = AsyncMock()
+            self.swap_success.status = 200
+            self.swap_success.json = AsyncMock(return_value={
+                "swapTransaction": "base64_encoded_transaction"
+            })
+            self.swap_success.raise_for_status = AsyncMock()
             
-            # Create response sequence for get_quote
-            success_quote = {
-                **MOCK_RESPONSES['quote'],
-                'slippageBps': 250  # Ensure slippage matches test expectations
-            }
-            error_response = AsyncMock()
-            error_response.status = 429
-            error_response.json = AsyncMock(return_value={"error": "Too many requests"})
-            error_response.raise_for_status = AsyncMock()
+            # Second response is for sending transaction to RPC
+            self.rpc_success = AsyncMock()
+            self.rpc_success.status = 200
+            self.rpc_success.json = AsyncMock(return_value={
+                "jsonrpc": "2.0",
+                "id": "send-tx",
+                "result": "test_signature_123"
+            })
+            self.rpc_success.raise_for_status = AsyncMock()
             
-            success_response = AsyncMock()
-            success_response.status = 200
-            success_response.json = AsyncMock(return_value=success_quote)
-            success_response.raise_for_status = AsyncMock()
+            # Third response is for monitoring transaction
+            self.monitor_success = AsyncMock()
+            self.monitor_success.status = 200
+            self.monitor_success.json = AsyncMock(return_value={
+                "jsonrpc": "2.0",
+                "id": "get-tx-status",
+                "result": {
+                    "value": [{
+                        "confirmationStatus": "finalized",
+                        "err": None
+                    }]
+                }
+            })
+            self.monitor_success.raise_for_status = AsyncMock()
             
-            # Create sequence with success after error
-            self.get_mock_responses = [error_response, error_response, success_response]
-            self.post_mock_responses = [post_error, post_success]
-            
-            # Reset call count for each test
-            self._call_count = 0
-            
-            # Create a new instance for each test to ensure clean state
-            self.get_response_instance = MockResponse(self.get_mock_responses)
-            self.post_response_instance = MockResponse(self.post_mock_responses)
+            # Create blockhash response
+            self.blockhash_success = AsyncMock()
+            self.blockhash_success.status = 200
+            self.blockhash_success.json = AsyncMock(return_value={
+                "jsonrpc": "2.0",
+                "id": "get-blockhash",
+                "result": {
+                    "value": {
+                        "blockhash": "test_blockhash_123",
+                        "lastValidBlockHeight": 123456789
+                    }
+                }
+            })
+            self.blockhash_success.raise_for_status = AsyncMock()
+
+            # Set up response sequences
+            self.get_responses = [self.error_response, self.error_response, self.success_response]
+            self.post_responses = [
+                self.swap_error,        # First attempt fails
+                self.swap_success,      # Get swap transaction
+                self.blockhash_success, # Get blockhash
+                self.rpc_success,       # Send transaction to RPC
+                self.monitor_success    # Monitor transaction status
+            ]
+            self.get_index = 0
+            self.post_index = 0
             
         async def __aenter__(self):
             return self
@@ -106,10 +137,28 @@ async def test_jupiter_v6_trading():
             return None
             
         def get(self, *args, **kwargs):
-            return self.get_response_instance
+            outer_self = self
+            class ContextManager:
+                async def __aenter__(self):
+                    response = outer_self.get_responses[min(outer_self.get_index, len(outer_self.get_responses) - 1)]
+                    outer_self.get_index += 1
+                    return response
+                    
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    return None
+            return ContextManager()
             
         def post(self, *args, **kwargs):
-            return self.post_response_instance
+            outer_self = self
+            class ContextManager:
+                async def __aenter__(self):
+                    response = outer_self.post_responses[min(outer_self.post_index, len(outer_self.post_responses) - 1)]
+                    outer_self.post_index += 1
+                    return response
+                    
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    return None
+            return ContextManager()
             
     # Patch ClientSession with our mock
     mock_session = MockClientSession()
@@ -133,22 +182,10 @@ async def test_jupiter_v6_trading():
         print("✅ get_quote test passed with retry mechanism")
     
     # Test execute_swap with retry mechanism
-    swap_error_response = AsyncMock()
-    swap_error_response.status = 429
-    swap_error_response.json = AsyncMock(return_value={"error": "Too many requests"})
-    swap_error_response.raise_for_status = AsyncMock()
-    
-    swap_success_response = AsyncMock()
-    swap_success_response.status = 200
-    swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
-    swap_success_response.raise_for_status = AsyncMock()
-    
-    # Set up post method with proper context manager
-    mock_post_response = AsyncMock()
-    mock_post_response.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
-    mock_post_response.__aexit__ = AsyncMock(return_value=None)
-    mock_session.post = AsyncMock(return_value=mock_post_response)
     wallet_address = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
+    
+    # Reset mock session for swap test
+    mock_session.post_index = 0
     
     with patch('aiohttp.ClientSession', return_value=mock_session), \
          patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:  # Mock sleep to avoid actual delays

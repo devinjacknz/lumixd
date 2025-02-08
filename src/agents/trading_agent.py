@@ -628,10 +628,10 @@ class TradingAgent(BaseAgent):
         self.active = not self.active
         return self.active
         
-    async def execute_small_trades_sequence(self, token_address: str, trade_count: int = 4) -> List[dict]:
+    async def execute_small_trades_sequence(self, token_address: str, amount_sol: float = 0.02) -> List[dict]:
         """Execute a sequence of small trades for a token"""
         results = []
-        trade_size = 0.001  # Very small trade size in SOL (0.001 SOL)
+        trade_count = 4  # Fixed number of trades
         
         for i in range(trade_count):
             # Alternate between buy and sell
@@ -639,7 +639,7 @@ class TradingAgent(BaseAgent):
             
             trade_request = {
                 'token': token_address,
-                'amount': trade_size,
+                'amount': amount_sol,
                 'direction': direction,
                 'slippage_bps': 250  # 2.5% slippage
             }
@@ -650,7 +650,7 @@ class TradingAgent(BaseAgent):
                     'status': 'success' if signature else 'failed',
                     'signature': signature,
                     'direction': direction,
-                    'amount': trade_size
+                    'amount': amount_sol
                 }
                 results.append(result)
                 
@@ -666,7 +666,7 @@ class TradingAgent(BaseAgent):
                     'status': 'error',
                     'error': str(e),
                     'direction': direction,
-                    'amount': trade_size
+                    'amount': amount_sol
                 })
                 await asyncio.sleep(5.0)
                 
