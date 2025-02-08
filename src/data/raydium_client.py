@@ -411,5 +411,53 @@ class RaydiumClient:
                 'system'
             )
             return None
+            
+    async def verify_transaction(self, signature: str) -> bool:
+        """Verify transaction success on Solscan
+        
+        Args:
+            signature: Transaction signature to verify
+            
+        Returns:
+            True if transaction was successful, False otherwise
+        """
+        try:
+            print(f"\n🔍 验证交易 | Verifying transaction: {signature}")
+            async with aiohttp.ClientSession() as session:
+                url = f"https://api.solscan.io/transaction?tx={signature}"
+                async with session.get(url) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+                    success = data.get('status') == 'Success'
+                    
+                    if success:
+                        print(f"✅ 交易验证成功 | Transaction verified successfully")
+                    else:
+                        print(f"❌ 交易验证失败 | Transaction verification failed")
+                        error_msg = ERROR_MESSAGES['swap_failed']
+                        await logging_service.log_error(
+                            f"{error_msg['zh']} | {error_msg['en']}",
+                            {
+                                'signature': signature,
+                                'status': data.get('status'),
+                                'error': data.get('error')
+                            },
+                            'system'
+                        )
+                    
+                    return success
+                    
+        except Exception as e:
+            print(f"❌ 交易验证错误 | Transaction verification error: {str(e)}")
+            error_msg = ERROR_MESSAGES['network_error']
+            await logging_service.log_error(
+                f"{error_msg['zh']} | {error_msg['en']}",
+                {
+                    'error': str(e),
+                    'signature': signature
+                },
+                'system'
+            )
+            return False
 
 raydium_client = RaydiumClient()  # Singleton instance
