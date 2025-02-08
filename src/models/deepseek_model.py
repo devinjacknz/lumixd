@@ -230,7 +230,87 @@ Assistant:"""
                         "timestamp": time.time(),
                         "market_state": "error"
                     }
+                    
+        # Default return if all retries fail
+        return {
+            "error": "All retries failed",
+            "timestamp": time.time(),
+            "market_state": "error"
+        }
 
+    async def check_risk_dialogue(self, trade_request: dict) -> dict:
+        """Risk check with bilingual dialogue"""
+        system_prompt = """你是一个专业的风险管理助手，负责分析交易风险。
+You are a professional risk management assistant analyzing trade risks.
+
+请分析以下交易风险并返回JSON格式结果 | Please analyze the following trade risk and return JSON result:
+
+示例输出 | Example output:
+{
+    "risk_level": "low/medium/high",
+    "approved": true/false,
+    "reason": "Risk analysis explanation in both languages",
+    "warnings": ["Warning 1", "警告 1"],
+    "suggestions": ["Suggestion 1", "建议 1"]
+}
+"""
+        
+        risk_prompt = f"""
+分析以下交易风险 | Analyze trade risk:
+代币 | Token: {trade_request.get('token', 'Unknown')}
+数量 | Amount: {trade_request.get('amount', '0')}
+方向 | Direction: {trade_request.get('direction', 'Unknown')}
+滑点 | Slippage: {trade_request.get('slippage', '2.5')}%
+
+请考虑以下因素 | Please consider:
+1. 市场波动性 | Market volatility
+2. 流动性风险 | Liquidity risk
+3. 价格影响 | Price impact
+4. 交易规模 | Trade size
+"""
+        
+        try:
+            # Get market data for context
+            market_data = await self.get_market_context(trade_request.get('token'))
+            if 'error' not in market_data:
+                risk_prompt += f"""
+市场数据 | Market Data:
+当前价格 | Current Price: {market_data.get('price')}
+市场影响 | Market Impact: {market_data.get('market_impact')}%
+"""
+            
+            response = self.generate_response(
+                system_prompt=system_prompt,
+                user_content=risk_prompt,
+                temperature=0.7
+            )
+            
+            result = json.loads(response.content)
+            
+            # Add market data to response
+            result['market_data'] = market_data
+            
+            # Store risk check in context
+            self.context.risk_checks[trade_request.get('token')] = {
+                'timestamp': time.time(),
+                'analysis': result
+            }
+            
+            return result
+            
+        except Exception as e:
+            error_response = {
+                'error': str(e),
+                'risk_level': 'high',
+                'approved': False,
+                'reason': f'Error analyzing risk: {str(e)} | 风险分析错误：{str(e)}',
+                'warnings': [
+                    'Failed to complete risk analysis',
+                    '无法完成风险分析'
+                ]
+            }
+            return error_response
+            
     @property
     def model_type(self) -> str:
         return "deepseek"
@@ -290,4 +370,4 @@ Assistant:"""
             return {
                 'error': 'Failed to parse trade instruction',
                 'raw_response': response.content
-            }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+            }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
