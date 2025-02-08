@@ -20,7 +20,7 @@ MOCK_RESPONSES = {
         "jsonrpc": "2.0",
         "result": {
             "context": {"slot": 1234},
-            "value": 5000000000  # 5 SOL
+            "value": 500000000000  # 500 SOL
         },
         "id": "get-balance"
     },
