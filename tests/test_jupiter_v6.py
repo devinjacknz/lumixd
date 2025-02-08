@@ -77,11 +77,11 @@ async def test_jupiter_v6_trading():
             self.get_responses = [
                 (429, {"error": "Too many requests"}),  # First attempt fails
                 (429, {"error": "Too many requests"}),  # Second attempt fails
-                (200, MOCK_RESPONSES['quote'])  # Third attempt succeeds
+                (200, {
+                    **MOCK_RESPONSES['quote'],
+                    'slippageBps': 250  # Ensure slippage matches test expectations
+                })  # Third attempt succeeds
             ]
-            
-            # Ensure slippage matches test expectations
-            MOCK_RESPONSES['quote']['slippageBps'] = 250
             
             # Create response sequence for execute_swap
             self.post_responses = [
@@ -96,6 +96,9 @@ async def test_jupiter_v6_trading():
                 response.status = status
                 response.json = AsyncMock(return_value=data)
                 response.raise_for_status = AsyncMock(side_effect=Exception("Server error") if status >= 500 else None)
+                # Ensure slippage matches test expectations
+                if status == 200:
+                    data['slippageBps'] = 250
                 self.get_mock_responses.append(response)
                 
             self.post_mock_responses = []
