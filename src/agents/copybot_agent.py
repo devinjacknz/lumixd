@@ -23,6 +23,7 @@ from src import nice_funcs as n
 from src.data.ohlcv_collector import collect_all_tokens, collect_token_data
 from src.models import ModelFactory
 from src.data.chainstack_client import ChainStackClient
+from src.data.jupiter_client import JupiterClient
 from src.agents.base_agent import BaseAgent
 
 # Data path for current copybot portfolio
@@ -76,6 +77,7 @@ class CopyBotAgent(BaseAgent):
         load_dotenv()
         self.model = None
         self.chainstack_client = ChainStackClient()
+        self.jupiter_client = JupiterClient()
         self.usd_size = 100.0  # Default USD size for trades
         self.max_usd_order_size = 50.0  # Default max order size
         self.slippage = 250  # Default slippage in bps (2.5%)
@@ -242,7 +244,12 @@ class CopyBotAgent(BaseAgent):
                 
                 try:
                     # Get current position value
-                    current_position = await self.chainstack_client.get_token_balance(token, os.getenv("WALLET_ADDRESS"))
+                    wallet_address = os.getenv("WALLET_ADDRESS", "")
+                    if not wallet_address:
+                        print("❌ No wallet address configured")
+                        return False
+                        
+                    current_position = await self.chainstack_client.get_token_balance(token, wallet_address)
                     current_position = float(current_position) if current_position else 0.0
                     
                     if action == "BUY":
@@ -263,11 +270,19 @@ class CopyBotAgent(BaseAgent):
                         print(f"🛍️ Buying ${amount_to_buy:.2f} of {token}")
                         
                         # Execute the buy using nice_funcs
-                        success = await self.chainstack_client.execute_swap(
-                            input_token=TRADING_CONFIG["tokens"]["SOL"],
-                            output_token=token,
-                            amount=str(int(amount_to_buy * 1e9)),
-                            slippage_bps=self.slippage
+                        quote = await self.jupiter_client.get_quote(
+                            input_mint=TRADING_CONFIG["tokens"]["SOL"],
+                            output_mint=token,
+                            amount=str(int(amount_to_buy * 1e9))
+                        )
+                        if not quote:
+                            print("❌ Failed to get quote")
+                            return False
+                            
+                        success = await self.jupiter_client.execute_swap(
+                            quote_response=quote,
+                            wallet_pubkey=os.getenv("WALLET_ADDRESS", ""),
+                            use_shared_accounts=True
                         )
                         
                         if success:
@@ -280,11 +295,19 @@ class CopyBotAgent(BaseAgent):
                             print(f"💰 Selling position worth ${current_position:.2f}")
                             
                             # Execute the sell using nice_funcs
-                            success = await self.chainstack_client.execute_swap(
-                                input_token=token,
-                                output_token=TRADING_CONFIG["tokens"]["SOL"],
-                                amount=str(int(current_position * 1e9)),
-                                slippage_bps=self.slippage
+                            quote = await self.jupiter_client.get_quote(
+                                input_mint=token,
+                                output_mint=TRADING_CONFIG["tokens"]["SOL"],
+                                amount=str(int(current_position * 1e9))
+                            )
+                            if not quote:
+                                print("❌ Failed to get quote")
+                                return False
+                                
+                            success = await self.jupiter_client.execute_swap(
+                                quote_response=quote,
+                                wallet_pubkey=os.getenv("WALLET_ADDRESS", ""),
+                                use_shared_accounts=True
                             )
                             
                             if success:
@@ -349,4 +372,4 @@ class CopyBotAgent(BaseAgent):
 
 if __name__ == "__main__":
     analyzer = CopyBotAgent()
-    analyzer.run_analysis_cycle()
+    asyncio.run(analyzer.run_analysis_cycle())

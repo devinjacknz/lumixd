@@ -54,11 +54,11 @@ async def run_agents():
     """Run all active agents in sequence"""
     try:
         # Initialize active agents
-        trading_agent = TradingAgent(agent_type='trading', instance_id='main') if ACTIVE_AGENTS['trading'] else None
-        risk_agent = RiskAgent(agent_type='risk', instance_id='main') if ACTIVE_AGENTS['risk'] else None
-        strategy_agent = StrategyAgent(agent_type='strategy', instance_id='main') if ACTIVE_AGENTS['strategy'] else None
-        copybot_agent = CopyBotAgent(agent_type='copybot', instance_id='main') if ACTIVE_AGENTS['copybot'] else None
-        sentiment_agent = SentimentAgent(agent_type='sentiment', instance_id='main') if ACTIVE_AGENTS['sentiment'] else None
+        trading_agent = TradingAgent() if ACTIVE_AGENTS['trading'] else None
+        risk_agent = RiskAgent() if ACTIVE_AGENTS['risk'] else None
+        strategy_agent = StrategyAgent() if ACTIVE_AGENTS['strategy'] else None
+        copybot_agent = CopyBotAgent() if ACTIVE_AGENTS['copybot'] else None
+        sentiment_agent = SentimentAgent() if ACTIVE_AGENTS['sentiment'] else None
 
         while True:
             try:
@@ -103,26 +103,43 @@ async def run_agents():
                 # Sleep until next cycle
                 next_run = datetime.now() + timedelta(minutes=TRADING_INTERVAL)
                 cprint(f"\n😴 Sleeping until {next_run.strftime('%H:%M:%S')}", "cyan")
-                time.sleep(60 * TRADING_INTERVAL)
+                await asyncio.sleep(60 * TRADING_INTERVAL)
 
             except Exception as e:
                 cprint(f"\n❌ Error running agents: {str(e)}", "red")
                 cprint("🔄 Continuing to next cycle...", "yellow")
-                time.sleep(60)  # Sleep for 1 minute on error before retrying
+                await asyncio.sleep(60)  # Sleep for 1 minute on error before retrying
 
     except KeyboardInterrupt:
         cprint("\n👋 Gracefully shutting down...", "yellow")
+        # Cleanup
+        if trading_agent:
+            trading_agent.active = False
+        if risk_agent:
+            risk_agent.active = False
+        if strategy_agent:
+            strategy_agent.active = False
+        if copybot_agent:
+            copybot_agent.active = False
+        if sentiment_agent:
+            sentiment_agent.active = False
     except Exception as e:
         cprint(f"\n❌ Fatal error in main loop: {str(e)}", "red")
         raise
 
 if __name__ == "__main__":
-    cprint("\n✨ Lumix AI Agent Trading System Starting...", "white", "on_blue")
-    cprint("\n📊 Active Agents:", "white", "on_blue")
-    for agent, active in ACTIVE_AGENTS.items():
-        status = "✅ ON" if active else "❌ OFF"
-        cprint(f"  • {agent.title()}: {status}", "white", "on_blue")
-    print("\n")
+    try:
+        cprint("\n✨ Lumix AI Agent Trading System Starting...", "white", "on_blue")
+        cprint("\n📊 Active Agents:", "white", "on_blue")
+        for agent, active in ACTIVE_AGENTS.items():
+            status = "✅ ON" if active else "❌ OFF"
+            cprint(f"  • {agent.title()}: {status}", "white", "on_blue")
+        print("\n")
 
-    import asyncio
-    asyncio.run(run_agents())
+        import asyncio
+        asyncio.run(run_agents())
+    except KeyboardInterrupt:
+        cprint("\n👋 Gracefully shutting down...", "yellow")
+    except Exception as e:
+        cprint(f"\n❌ Fatal error: {str(e)}", "red")
+        sys.exit(1)

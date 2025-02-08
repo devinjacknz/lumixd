@@ -27,6 +27,7 @@ from src.data.chainstack_client import ChainStackClient
 from src.strategies.snap_strategy import SnapStrategy
 from src.monitoring.performance_monitor import PerformanceMonitor
 from src.monitoring.system_monitor import SystemMonitor
+from src.agents.base_agent import BaseAgent
 from src.agents.risk_agent import RiskAgent
 from src.agents.focus_agent import FocusAgent
 import json
@@ -60,14 +61,13 @@ from src.nice_funcs import (
 # Load environment variables
 load_dotenv()
 
-class TradingAgent:
-    def __init__(self, instance_id: str, model_type: str = "deepseek-r1", model_name: str = "deepseek-r1:1.5b"):
-        self.instance_id = instance_id
+class TradingAgent(BaseAgent):
+    def __init__(self, agent_type: str = 'trading', instance_id: str = 'main', model_type: str = "deepseek-r1", model_name: str = "deepseek-r1:1.5b"):
+        super().__init__(agent_type=agent_type, instance_id=instance_id)
         self.model_type = model_type
         self.model_name = model_name
         self.model_factory = ModelFactory()
         self.model = self.model_factory.get_model('ollama')  # Use ollama as the model provider
-        self.active = True
         self.min_trade_size = MIN_TRADE_SIZE_SOL
         self.max_position_size = 0.20
         self.cash_buffer = 0.30
