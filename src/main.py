@@ -9,23 +9,31 @@ from termcolor import cprint
 from dotenv import load_dotenv
 import time
 from datetime import datetime, timedelta
-from src.config import (
-    TRADING_INTERVAL,
-    MONITORED_TOKENS,
-    EXCLUDED_TOKENS,
-    AI_MODEL
-)
+from src.config.settings import TRADING_CONFIG
+
+# Import trading parameters
+TRADING_INTERVAL = TRADING_CONFIG["trade_parameters"]["interval_minutes"]
+MONITORED_TOKENS = [
+    TRADING_CONFIG["tokens"]["AI16Z"],
+    TRADING_CONFIG["tokens"]["SWARM"]
+]
+EXCLUDED_TOKENS = [
+    TRADING_CONFIG["tokens"]["USDC"],
+    TRADING_CONFIG["tokens"]["SOL"]
+]
 
 # Add project root to Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-# Import agents
+# Import agents and config
+import asyncio
 from src.agents.trading_agent import TradingAgent
 from src.agents.risk_agent import RiskAgent
 from src.agents.strategy_agent import StrategyAgent
 from src.agents.copybot_agent import CopyBotAgent
 from src.agents.sentiment_agent import SentimentAgent
+from src.models import ModelFactory
 
 # Load environment variables
 load_dotenv()
@@ -46,11 +54,11 @@ async def run_agents():
     """Run all active agents in sequence"""
     try:
         # Initialize active agents
-        trading_agent = TradingAgent(instance_id='main', model_type='deepseek-r1', model_name=AI_MODEL) if ACTIVE_AGENTS['trading'] else None
-        risk_agent = RiskAgent(instance_id='main', model_type='deepseek-r1', model_name=AI_MODEL) if ACTIVE_AGENTS['risk'] else None
-        strategy_agent = StrategyAgent(instance_id='main', model_type='deepseek-r1', model_name=AI_MODEL) if ACTIVE_AGENTS['strategy'] else None
-        copybot_agent = CopyBotAgent(instance_id='main', model_type='deepseek-r1', model_name=AI_MODEL) if ACTIVE_AGENTS['copybot'] else None
-        sentiment_agent = SentimentAgent(instance_id='main', model_type='deepseek-r1', model_name=AI_MODEL) if ACTIVE_AGENTS['sentiment'] else None
+        trading_agent = TradingAgent(instance_id='main') if ACTIVE_AGENTS['trading'] else None
+        risk_agent = RiskAgent(instance_id='main') if ACTIVE_AGENTS['risk'] else None
+        strategy_agent = StrategyAgent(instance_id='main') if ACTIVE_AGENTS['strategy'] else None
+        copybot_agent = CopyBotAgent(instance_id='main') if ACTIVE_AGENTS['copybot'] else None
+        sentiment_agent = SentimentAgent(instance_id='main') if ACTIVE_AGENTS['sentiment'] else None
 
         while True:
             try:
