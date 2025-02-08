@@ -34,25 +34,27 @@ async def test_jupiter_v6_trading():
     client = JupiterClient()
     
     # Set up mock responses for get_quote
+    # Set up mock responses
     error_response = AsyncMock()
     error_response.status = 429
-    error_response.json.return_value = {"error": "Too many requests"}
+    error_response.json = AsyncMock(return_value={"error": "Too many requests"})
     error_response.raise_for_status = AsyncMock()
     
     success_response = AsyncMock()
     success_response.status = 200
-    success_response.json.return_value = MOCK_RESPONSES['quote']
+    success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
     success_response.raise_for_status = AsyncMock()
     
-    # Create mock session class for get_quote
-    mock_response = AsyncMock()
-    mock_response.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
-    mock_response.__aexit__ = AsyncMock()
-    
+    # Create mock session
     mock_session = AsyncMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock()
-    mock_session.get = AsyncMock(return_value=mock_response)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+    
+    # Set up get method with proper context manager
+    mock_get_response = AsyncMock()
+    mock_get_response.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
+    mock_get_response.__aexit__ = AsyncMock(return_value=None)
+    mock_session.get = AsyncMock(return_value=mock_get_response)
     
     # Test get_quote with retry mechanism
     with patch('aiohttp.ClientSession', return_value=mock_session), \
@@ -75,20 +77,19 @@ async def test_jupiter_v6_trading():
     # Test execute_swap with retry mechanism
     swap_error_response = AsyncMock()
     swap_error_response.status = 429
-    swap_error_response.json.return_value = {"error": "Too many requests"}
+    swap_error_response.json = AsyncMock(return_value={"error": "Too many requests"})
     swap_error_response.raise_for_status = AsyncMock()
     
     swap_success_response = AsyncMock()
     swap_success_response.status = 200
-    swap_success_response.json.return_value = MOCK_RESPONSES['swap']
+    swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
     swap_success_response.raise_for_status = AsyncMock()
     
-    # Create mock response for execute_swap
-    mock_swap_response = AsyncMock()
-    mock_swap_response.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
-    mock_swap_response.__aexit__ = AsyncMock()
-    
-    mock_session.post = AsyncMock(return_value=mock_swap_response)
+    # Set up post method with proper context manager
+    mock_post_response = AsyncMock()
+    mock_post_response.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
+    mock_post_response.__aexit__ = AsyncMock(return_value=None)
+    mock_session.post = AsyncMock(return_value=mock_post_response)
     wallet_address = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
     
     with patch('aiohttp.ClientSession', return_value=mock_session), \
@@ -107,14 +108,15 @@ async def test_jupiter_v6_trading():
     # Test error handling
     error_response = AsyncMock()
     error_response.status = 500
-    error_response.json.return_value = {"error": "Internal server error"}
+    error_response.json = AsyncMock(return_value={"error": "Internal server error"})
     error_response.raise_for_status = AsyncMock(side_effect=Exception("Internal server error"))
     
-    # Create mock response for error handling
+    # Set up get method with proper context manager for error test
     mock_error_response = AsyncMock()
     mock_error_response.__aenter__ = AsyncMock(return_value=error_response)
-    mock_error_response.__aexit__ = AsyncMock()
+    mock_error_response.__aexit__ = AsyncMock(return_value=None)
     
+    # Update session's get method for error test
     mock_session.get = AsyncMock(return_value=mock_error_response)
     
     with patch('aiohttp.ClientSession', return_value=mock_session):
