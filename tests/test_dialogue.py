@@ -1,7 +1,7 @@
 import asyncio
 import os
 import json
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from dotenv import load_dotenv
 from src.agents.trading_agent import TradingAgent
 from src.models.base_model import ModelResponse
@@ -43,34 +43,16 @@ MOCK_RESPONSES = {
 
 async def test_dialogue_trading():
     """Test bilingual dialogue trading functionality"""
-    # Create agent with mocked dependencies
     # Create mock objects
-    mock_response = AsyncMock()
-    mock_response.json.return_value = MOCK_RESPONSES['balance']
+    mock_response = MagicMock()
+    mock_response.json = AsyncMock(return_value=MOCK_RESPONSES['balance'])
     mock_response.status = 200
     
-    mock_session = AsyncMock()
-    mock_session.__aenter__.return_value = mock_response
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
     
-    mock_post = AsyncMock()
-    mock_post.return_value = mock_session
-    
-    mock_quote = AsyncMock()
-    mock_quote.return_value = MOCK_RESPONSES['quote']
-    
-    mock_swap = AsyncMock()
-    mock_swap.return_value = "tx_signature_123"
-    
-    # Apply patches
-    # Set up mock responses
-    mock_response = AsyncMock()
-    mock_response.json.return_value = MOCK_RESPONSES['balance']
-    mock_response.status = 200
-    
-    mock_session = AsyncMock()
-    mock_session.__aenter__.return_value = mock_response
-    
-    mock_post = AsyncMock()
+    mock_post = MagicMock()
     mock_post.return_value = mock_session
     
     mock_quote = AsyncMock()
@@ -98,20 +80,12 @@ async def test_dialogue_trading():
         
         agent = TradingAgent()
     
-    async def test_trade_command(command: str, is_chinese: bool = False, mock_post=None, mock_quote=None, mock_swap=None):
+    async def test_trade_command(command: str, is_chinese: bool = False):
         """Helper function to test trade commands"""
         print(f"\n🔍 Testing {'Chinese' if is_chinese else 'English'} trading command...")
         print(f"Command: {command}")
         
         try:
-            # Set up mocks if provided
-            if all([mock_post, mock_quote, mock_swap]):
-                mock_response = AsyncMock()
-                mock_response.json.return_value = MOCK_RESPONSES['balance']
-                mock_response.status = 200
-                mock_post.return_value.__aenter__.return_value = mock_response
-                mock_quote.return_value = MOCK_RESPONSES['quote']
-                mock_swap.return_value = "tx_signature_123"
             
             response = await agent.execute_dialogue_trade(command)
             print(f"Response: {response}")
@@ -147,20 +121,14 @@ async def test_dialogue_trading():
     # Test valid Chinese trading command
     cn_response = await test_trade_command(
         "买入500个SOL代币，滑点不超过2%",
-        is_chinese=True,
-        mock_post=mock_post,
-        mock_quote=mock_quote,
-        mock_swap=mock_swap
+        is_chinese=True
     )
     assert cn_response["status"] == "success", "Valid Chinese trade should succeed"
     assert "交易执行成功" in cn_response["message_cn"], "Should have Chinese success message"
     
     # Test valid English trading command
     en_response = await test_trade_command(
-        "Buy 500 SOL tokens with max 2% slippage",
-        mock_post=mock_post,
-        mock_quote=mock_quote,
-        mock_swap=mock_swap
+        "Buy 500 SOL tokens with max 2% slippage"
     )
     assert en_response["status"] == "success", "Valid English trade should succeed"
     assert "Trade executed successfully" in en_response["message"], "Should have English success message"
@@ -168,20 +136,14 @@ async def test_dialogue_trading():
     # Test error handling in Chinese
     cn_error = await test_trade_command(
         "买入负100个SOL代币",  # Invalid amount
-        is_chinese=True,
-        mock_post=mock_post,
-        mock_quote=mock_quote,
-        mock_swap=mock_swap
+        is_chinese=True
     )
     assert cn_error["status"] == "error", "Expected error for invalid Chinese input"
     assert "金额无效" in cn_error["message_cn"], "Should have Chinese error message"
     
     # Test error handling in English
     en_error = await test_trade_command(
-        "Buy -100 SOL tokens",  # Invalid amount
-        mock_post=mock_post,
-        mock_quote=mock_quote,
-        mock_swap=mock_swap
+        "Buy -100 SOL tokens"  # Invalid amount
     )
     assert en_error["status"] == "error", "Expected error for invalid English input"
     assert "Invalid amount" in en_error["message"], "Should have English error message"
