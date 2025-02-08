@@ -63,18 +63,27 @@ Please respond in JSON format. Ensure the response starts with '{{' and ends wit
                 "model": self.model_name,
                 "prompt": formatted_prompt,
                 "temperature": temperature,
-                "raw": True  # Get raw response without formatting
+                "stream": True  # Use streaming mode
             }
             
-            response = requests.post(self.api_url, json=data, headers=self.headers)
-            response.raise_for_status()
+            # Stream response and collect all chunks
+            full_response = ""
+            with requests.post(self.api_url, json=data, headers=self.headers, stream=True) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if line:
+                        try:
+                            chunk = json.loads(line)
+                            if 'response' in chunk:
+                                full_response += chunk['response']
+                        except json.JSONDecodeError:
+                            continue
             
-            content = response.json().get('response', '').strip()
-            
-            # Try to parse JSON from response
+            # Clean up and parse JSON from full response
             try:
-                # Clean up response
-                content = content.replace('\n', ' ').strip()
+                # Remove code blocks and clean whitespace
+                content = full_response.replace('```json', '').replace('```', '').strip()
+                content = ' '.join(line.strip() for line in content.split('\n'))
                 
                 # Find JSON content
                 start_idx = content.find('{')
@@ -82,13 +91,11 @@ Please respond in JSON format. Ensure the response starts with '{{' and ends wit
                 
                 if start_idx >= 0 and end_idx > start_idx:
                     json_str = content[start_idx:end_idx + 1]
-                    # Remove any non-JSON text
-                    json_str = json_str.replace('```json', '').replace('```', '')
                     parsed_content = json.loads(json_str)
                     
                     return ModelResponse(
                         content=json.dumps(parsed_content),
-                        raw_response=response.json()
+                        raw_response={'response': full_response}
                     )
                         
             except json.JSONDecodeError as e:
@@ -215,4 +222,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }          
+            }              
