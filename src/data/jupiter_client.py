@@ -67,12 +67,29 @@ class JupiterClient:
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    response.raise_for_status()
-                    quote = await response.json()
-                    cprint(f"✅ Got quote: {json.dumps(quote, indent=2)}", "green")
-                    return quote
+            retry_count = 0
+            max_retries = 3
+            retry_delay = 1.0
+            
+            while retry_count < max_retries:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, params=params) as response:
+                        if response.status >= 500:
+                            response.raise_for_status()
+                        quote = await response.json()
+                        
+                        if response.status == 200:
+                            cprint(f"✅ Got quote: {json.dumps(quote, indent=2)}", "green")
+                            return quote
+                        
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            cprint(f"⚠️ Retrying quote request (attempt {retry_count})", "yellow")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2
+                        else:
+                            cprint(f"❌ Failed to get quote after {max_retries} retries", "red")
+                            return None
         except Exception as e:
             cprint(f"❌ Failed to get quote: {str(e)}", "red")
             return None
