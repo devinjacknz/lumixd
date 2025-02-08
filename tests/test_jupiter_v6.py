@@ -89,40 +89,15 @@ async def test_jupiter_v6_trading():
             success_response.raise_for_status = AsyncMock()
             
             # Create sequence with success after error
-            self.get_mock_responses = [error_response, success_response, success_response]
-            
-            # Reset call count for each test
-            self._call_count = 0
-            
-            # Create response sequence for execute_swap
-            self.post_responses = [
-                (429, {"error": "Too many requests"}),  # First attempt fails
-                (200, MOCK_RESPONSES['swap'])  # Second attempt succeeds
-            ]
-            
-            # Create post responses
-            post_error = AsyncMock()
-            post_error.status = 429
-            post_error.json = AsyncMock(return_value={"error": "Too many requests"})
-            post_error.raise_for_status = AsyncMock()
-            
-            post_success = AsyncMock()
-            post_success.status = 200
-            post_success.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
-            post_success.raise_for_status = AsyncMock()
-            
+            self.get_mock_responses = [error_response, error_response, success_response]
             self.post_mock_responses = [post_error, post_success]
             
             # Reset call count for each test
             self._call_count = 0
-                
-            self.post_mock_responses = []
-            for status, data in self.post_responses:
-                response = AsyncMock()
-                response.status = status
-                response.json = AsyncMock(return_value=data)
-                response.raise_for_status = AsyncMock()
-                self.post_mock_responses.append(response)
+            
+            # Create a new instance for each test to ensure clean state
+            self.get_response_instance = MockResponse(self.get_mock_responses)
+            self.post_response_instance = MockResponse(self.post_mock_responses)
             
         async def __aenter__(self):
             return self
@@ -131,10 +106,10 @@ async def test_jupiter_v6_trading():
             return None
             
         def get(self, *args, **kwargs):
-            return MockResponse(self.get_mock_responses)
+            return self.get_response_instance
             
         def post(self, *args, **kwargs):
-            return MockResponse(self.post_mock_responses)
+            return self.post_response_instance
             
     # Patch ClientSession with our mock
     mock_session = MockClientSession()
