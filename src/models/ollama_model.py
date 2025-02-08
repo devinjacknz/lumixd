@@ -95,6 +95,17 @@ Return only the JSON response, do not add any other text."""
                     json_str = content[start_idx:end_idx + 1]
                     parsed_content = json.loads(json_str)
                     
+                    # Map trade_type to direction for trading commands
+                    if 'trade_type' in parsed_content:
+                        parsed_content['direction'] = parsed_content['trade_type']
+                        
+                    # Convert slippage to slippage_bps
+                    if 'slippage' in parsed_content:
+                        try:
+                            parsed_content['slippage_bps'] = int(float(parsed_content['slippage']) * 100)
+                        except (ValueError, TypeError):
+                            parsed_content['slippage_bps'] = 250  # Default 2.5%
+                    
                     return ModelResponse(
                         content=json.dumps(parsed_content),
                         raw_response={'response': full_response}
@@ -124,13 +135,18 @@ Return only the JSON response, do not add any other text."""
 
 示例输出 | Example output:
 {
-    "trade_type": "buy",
+    "direction": "buy",
     "token": "SOL",
     "amount": "500",
-    "slippage": "2",
+    "slippage_bps": 200,
     "input_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     "output_mint": "So11111111111111111111111111111111111111112"
-}"""
+}
+
+注意事项 | Notes:
+1. direction必须是"buy"或"sell" | direction must be "buy" or "sell"
+2. slippage_bps是基点数，例如2%=200基点 | slippage_bps is in basis points, e.g., 2% = 200 bps
+3. amount必须是正数 | amount must be positive"""
         
         response = self.generate_response(
             system_prompt=system_prompt,
@@ -154,6 +170,16 @@ Return only the JSON response, do not add any other text."""
                 if start_idx >= 0 and end_idx > start_idx:
                     json_str = content[start_idx:end_idx + 1]
                     result = json.loads(json_str)
+                    
+                    # Map trade parameters
+                    if 'trade_type' in result:
+                        result['direction'] = result['trade_type']
+                    if 'slippage' in result:
+                        try:
+                            result['slippage_bps'] = int(float(result['slippage']) * 100)
+                        except (ValueError, TypeError):
+                            result['slippage_bps'] = 250  # Default 2.5%
+                    
                     return result
                     
             return {
@@ -224,4 +250,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                  
+            }                              
