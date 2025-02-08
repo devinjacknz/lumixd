@@ -234,8 +234,25 @@ class JupiterClient:
             cprint(f"❌ Failed to create token account: {str(e)}", "red")
             return None
 
-    def _send_and_confirm_transaction(self, tx: Transaction) -> Optional[str]:
+    def _send_and_confirm_transaction(self, tx_data: str) -> Optional[str]:
         try:
+            # Get recent blockhash
+            response = requests.post(
+                self.rpc_url,
+                headers=self.headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "get-blockhash",
+                    "method": "getLatestBlockhash",
+                    "params": [{"commitment": "finalized"}]
+                }
+            )
+            response.raise_for_status()
+            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
+            if not blockhash:
+                raise ValueError("Failed to get blockhash")
+
+            # Send transaction
             response = requests.post(
                 self.rpc_url,
                 headers=self.headers,
@@ -244,17 +261,26 @@ class JupiterClient:
                     "id": "send-tx",
                     "method": "sendTransaction",
                     "params": [
-                        base64.b64encode(bytes(tx)).decode('utf-8'),
+                        tx_data,
                         {
                             "encoding": "base64",
                             "maxRetries": 3,
                             "skipPreflight": True,
-                            "preflightCommitment": "finalized"
+                            "preflightCommitment": "finalized",
+                            "minContextSlot": None,
+                            "maxContextSlot": None
                         }
                     ]
                 }
             )
-            signature = response.json().get("result")
+            response.raise_for_status()
+            result = response.json()
+            
+            if "error" in result:
+                cprint(f"❌ RPC error: {json.dumps(result['error'], indent=2)}", "red")
+                return None
+                
+            signature = result.get("result")
             if signature and self.monitor_transaction(signature):
                 return signature
             return None
