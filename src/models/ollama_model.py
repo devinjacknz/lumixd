@@ -100,6 +100,11 @@ class OllamaModel(BaseModel):
                     if len(parts) > 1:
                         json_block = parts[1].split("```")[0].strip()
                         try:
+                            # Clean up the JSON block
+                            json_block = re.sub(r'[^\x00-\x7F]+', '', json_block)  # Remove non-ASCII chars
+                            json_block = re.sub(r'(?<!["{\s,])\s*:\s*(?![\s,}"])', '": "', json_block)  # Fix missing quotes
+                            json_block = re.sub(r'(?<=[}\]"])\s*(?=,)', '', json_block)  # Fix spacing
+                            json_block = re.sub(r'"\s*,\s*}', '"}', json_block)  # Fix trailing commas
                             parsed_content = json.loads(json_block)
                             return ModelResponse(
                                 content=json.dumps(parsed_content),
@@ -122,6 +127,8 @@ class OllamaModel(BaseModel):
                     json_str = re.sub(r'[^\x00-\x7F]+', '', json_str)  # Remove non-ASCII chars
                     json_str = re.sub(r'(?<!["{\s,])\s*:\s*(?![\s,}"])', '": "', json_str)  # Fix missing quotes
                     json_str = re.sub(r'(?<=[}\]"])\s*(?=,)', '', json_str)  # Fix spacing
+                    json_str = re.sub(r'(?<=[{\s,])"?(\d+(?:\.\d+)?)"?(?=\s*[,}])', r'\1', json_str)  # Fix quoted numbers
+                    json_str = re.sub(r'"\s*,\s*}', '"}', json_str)  # Fix trailing commas
                     parsed_content = json.loads(json_str)
                     
                     # Map trade_type to direction for trading commands
@@ -166,16 +173,17 @@ class OllamaModel(BaseModel):
 {
     "direction": "buy",
     "token": "SOL",
-    "amount": "500",
-    "slippage_bps": 200,
-    "input_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    "output_mint": "So11111111111111111111111111111111111111112"
+    "amount": 500,
+    "slippage_bps": 200
 }
 
 注意事项 | Notes:
-1. direction必须是"buy"或"sell" | direction must be "buy" or "sell"
-2. slippage_bps是基点数，例如2%=200基点 | slippage_bps is in basis points, e.g., 2% = 200 bps
-3. amount必须是正数 | amount must be positive"""
+1. 必须严格按照示例格式返回JSON | Must return JSON exactly in the example format
+2. 买入=buy，卖出=sell | Buy=buy, Sell=sell
+3. amount必须是数字，不能带引号 | amount must be a number without quotes
+4. slippage_bps必须是数字，例如2%=200 | slippage_bps must be a number, e.g., 2%=200
+5. 所有字符串必须用双引号 | All strings must use double quotes
+6. 不要添加任何其他字段 | Do not add any other fields"""
         
         response = self.generate_response(
             system_prompt=system_prompt,
@@ -203,10 +211,31 @@ class OllamaModel(BaseModel):
                     # Map trade parameters
                     if 'trade_type' in result:
                         result['direction'] = result['trade_type']
+                    elif '买入' in instruction or 'buy' in instruction.lower():
+                        result['direction'] = 'buy'
+                    elif '卖出' in instruction or 'sell' in instruction.lower():
+                        result['direction'] = 'sell'
+                        
+                    # Convert amount to number if it's a string
+                    if 'amount' in result and isinstance(result['amount'], str):
+                        try:
+                            result['amount'] = float(result['amount'].replace(',', ''))
+                        except (ValueError, TypeError):
+                            pass
+                            
+                    # Handle slippage
                     if 'slippage' in result:
                         try:
                             result['slippage_bps'] = int(float(result['slippage']) * 100)
                         except (ValueError, TypeError):
+                            result['slippage_bps'] = 250  # Default 2.5%
+                    elif 'slippage_bps' not in result:
+                        # Try to extract slippage from instruction
+                        import re
+                        slippage_match = re.search(r'(\d+(?:\.\d+)?)%', instruction)
+                        if slippage_match:
+                            result['slippage_bps'] = int(float(slippage_match.group(1)) * 100)
+                        else:
                             result['slippage_bps'] = 250  # Default 2.5%
                     
                     return result
@@ -279,4 +308,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                                      
+            }                                                              
