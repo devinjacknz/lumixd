@@ -54,41 +54,51 @@ async def run_agents():
     """Run all active agents in sequence"""
     try:
         # Initialize active agents
-        trading_agent = TradingAgent(instance_id='main') if ACTIVE_AGENTS['trading'] else None
-        risk_agent = RiskAgent(instance_id='main') if ACTIVE_AGENTS['risk'] else None
-        strategy_agent = StrategyAgent(instance_id='main') if ACTIVE_AGENTS['strategy'] else None
-        copybot_agent = CopyBotAgent(instance_id='main') if ACTIVE_AGENTS['copybot'] else None
-        sentiment_agent = SentimentAgent(instance_id='main') if ACTIVE_AGENTS['sentiment'] else None
+        trading_agent = TradingAgent(agent_type='trading', instance_id='main') if ACTIVE_AGENTS['trading'] else None
+        risk_agent = RiskAgent(agent_type='risk', instance_id='main') if ACTIVE_AGENTS['risk'] else None
+        strategy_agent = StrategyAgent(agent_type='strategy', instance_id='main') if ACTIVE_AGENTS['strategy'] else None
+        copybot_agent = CopyBotAgent(agent_type='copybot', instance_id='main') if ACTIVE_AGENTS['copybot'] else None
+        sentiment_agent = SentimentAgent(agent_type='sentiment', instance_id='main') if ACTIVE_AGENTS['sentiment'] else None
 
         while True:
             try:
                 # Run Risk Management
-                if risk_agent:
-                    cprint("\n🛡️ Running Risk Management...", "cyan")
-                    await risk_agent.run()
+                try:
+                    # Run Risk Management
+                    if risk_agent and risk_agent.active:
+                        cprint("\n🛡️ Running Risk Management...", "cyan")
+                        await risk_agent.run()
 
-                # Run Trading Analysis
-                if trading_agent:
-                    cprint("\n🤖 Running Trading Analysis...", "cyan")
-                    await trading_agent.run()
+                    # Run Trading Analysis
+                    if trading_agent and trading_agent.active:
+                        cprint("\n🤖 Running Trading Analysis...", "cyan")
+                        await trading_agent.run()
 
-                # Run Strategy Analysis
-                if strategy_agent:
-                    cprint("\n📊 Running Strategy Analysis...", "cyan")
-                    for token in MONITORED_TOKENS:
-                        if token not in EXCLUDED_TOKENS:  # Skip USDC and other excluded tokens
-                            cprint(f"\n🔍 Analyzing {token}...", "cyan")
-                            await strategy_agent.analyze_market_data({'symbol': token})
+                    # Run Strategy Analysis
+                    if strategy_agent and strategy_agent.active:
+                        cprint("\n📊 Running Strategy Analysis...", "cyan")
+                        for token in MONITORED_TOKENS:
+                            if token not in EXCLUDED_TOKENS:  # Skip USDC and other excluded tokens
+                                cprint(f"\n🔍 Analyzing {token}...", "cyan")
+                                try:
+                                    analysis = await strategy_agent.analyze_market_data({'symbol': token})
+                                    if analysis and 'error' in analysis:
+                                        cprint(f"⚠️ Analysis warning: {analysis['error']}", "yellow")
+                                except Exception as e:
+                                    cprint(f"❌ Analysis error: {str(e)}", "red")
 
-                # Run CopyBot Analysis
-                if copybot_agent:
-                    cprint("\n🤖 Running CopyBot Portfolio Analysis...", "cyan")
-                    await copybot_agent.run_analysis_cycle()
+                    # Run CopyBot Analysis
+                    if copybot_agent and copybot_agent.active:
+                        cprint("\n🤖 Running CopyBot Portfolio Analysis...", "cyan")
+                        await copybot_agent.run_analysis_cycle()
 
-                # Run Sentiment Analysis
-                if sentiment_agent:
-                    cprint("\n🎭 Running Sentiment Analysis...", "cyan")
-                    await sentiment_agent.run()
+                    # Run Sentiment Analysis
+                    if sentiment_agent and sentiment_agent.active:
+                        cprint("\n🎭 Running Sentiment Analysis...", "cyan")
+                        await sentiment_agent.run()
+                except Exception as e:
+                    cprint(f"\n❌ Agent execution error: {str(e)}", "red")
+                    # Continue to next cycle even if one agent fails
 
                 # Sleep until next cycle
                 next_run = datetime.now() + timedelta(minutes=TRADING_INTERVAL)
