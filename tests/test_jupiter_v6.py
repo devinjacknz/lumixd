@@ -41,7 +41,15 @@ async def test_jupiter_v6_trading():
             
         async def __aenter__(self):
             self._call_count += 1
-            return self.responses[min(self._call_count - 1, len(self.responses) - 1)]
+            if self._call_count <= len(self.responses):
+                response = self.responses[self._call_count - 1]
+                if response.status >= 500:
+                    await response.raise_for_status()
+                return response
+            response = self.responses[-1]
+            if response.status >= 500:
+                await response.raise_for_status()
+            return response
             
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             return None
@@ -49,27 +57,26 @@ async def test_jupiter_v6_trading():
     class MockClientSession:
         def __init__(self):
             # Create get responses
-            # Create get responses
             error_response = AsyncMock()
             error_response.status = 429
             error_response.json = AsyncMock(return_value={"error": "Too many requests"})
-            error_response.raise_for_status = AsyncMock(side_effect=lambda: None if error_response.status < 500 else Exception("Server error"))
+            error_response.raise_for_status = AsyncMock()
             
             success_response = AsyncMock()
             success_response.status = 200
             success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
-            success_response.raise_for_status = AsyncMock(side_effect=lambda: None)
+            success_response.raise_for_status = AsyncMock()
             
             # Create post responses
             swap_error_response = AsyncMock()
             swap_error_response.status = 429
             swap_error_response.json = AsyncMock(return_value={"error": "Too many requests"})
-            swap_error_response.raise_for_status = AsyncMock(side_effect=lambda: None if swap_error_response.status < 500 else Exception("Server error"))
+            swap_error_response.raise_for_status = AsyncMock()
             
             swap_success_response = AsyncMock()
             swap_success_response.status = 200
             swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
-            swap_success_response.raise_for_status = AsyncMock(side_effect=lambda: None)
+            swap_success_response.raise_for_status = AsyncMock()
             
             self.get_responses = [error_response, error_response, success_response]
             self.post_responses = [swap_error_response, swap_success_response]
