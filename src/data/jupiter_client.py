@@ -84,7 +84,7 @@ class JupiterClient:
                     "jsonrpc": "2.0",
                     "id": "get-blockhash",
                     "method": "getLatestBlockhash",
-                    "params": [{"commitment": "finalized"}]
+                    "params": [{"commitment": "confirmed"}]
                 }
             )
             response.raise_for_status()
@@ -96,7 +96,8 @@ class JupiterClient:
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
             tx_bytes = base64.b64decode(tx_data)
             tx = Transaction.from_bytes(tx_bytes)
-            tx.sign([wallet_key], Hash.from_string(blockhash))
+            tx.message.recent_blockhash = Hash.from_string(blockhash)
+            tx.sign([wallet_key])
             signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
             
             # Send transaction
