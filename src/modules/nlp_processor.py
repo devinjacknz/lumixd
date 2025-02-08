@@ -109,6 +109,10 @@ class NLPProcessor:
     def _extract_parameters(self, model_response: str) -> Dict:
         """Extract parameters from model response"""
         try:
+            # Return empty dict for invalid input
+            if not isinstance(model_response, str) or len(model_response.strip()) == 0:
+                return {}
+                
             # Use another model call to structure the output
             response = self.model.generate_response(
                 system_prompt="Extract and structure the following trading parameters as a Python dictionary. Include only valid parameters.",
@@ -116,6 +120,10 @@ class NLPProcessor:
                 temperature=0.1  # Very low temperature for consistent formatting
             )
             
+            # Return empty dict for invalid model response
+            if not response or not response.content:
+                return {}
+                
             # Safely evaluate the response
             import ast
             try:
@@ -124,22 +132,19 @@ class NLPProcessor:
                 end = response.content.rfind("}") + 1
                 if start >= 0 and end > start:
                     dict_str = response.content[start:end]
-                    return ast.literal_eval(dict_str)
+                    params = ast.literal_eval(dict_str)
+                    # Convert numeric values
+                    for key in ["amount", "slippage"]:
+                        if key in params and isinstance(params[key], str):
+                            try:
+                                params[key] = float(params[key])
+                            except ValueError:
+                                pass
+                    return params
             except:
-                pass
-                
-            # Fallback to manual parsing if ast.literal_eval fails
-            params = {}
-            lines = model_response.lower().split("\n")
-            for line in lines:
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    key = key.strip().replace(" ", "_")
-                    value = value.strip().strip('"\'')
-                    if value:
-                        params[key] = value
-                        
-            return params
+                return {}  # Return empty dict on any parsing error
+            
+            return {}
         except Exception as e:
             cprint(f"❌ Failed to extract parameters: {str(e)}", "red")
             return {}
@@ -147,28 +152,34 @@ class NLPProcessor:
     def _calculate_confidence(self, model_response: str) -> float:
         """Calculate confidence score for parameter extraction"""
         try:
+            if not isinstance(model_response, str):
+                return 0.5
+                
             # Check for confidence indicators in the response
             indicators = {
-                "high": ["confident", "clear", "explicit", "definitely"],
-                "medium": ["likely", "probably", "should be"],
-                "low": ["unclear", "ambiguous", "might be", "possibly"]
+                "high": ["confident", "clear", "explicit", "definitely", "certain", "sure", "absolutely"],
+                "medium": ["likely", "probably", "should be", "appears", "seems", "expect"],
+                "low": ["unclear", "ambiguous", "might be", "possibly", "maybe", "uncertain", "not sure"]
             }
             
             response_lower = model_response.lower()
             
-            # Count indicators
-            scores = {
-                "high": sum(1 for word in indicators["high"] if word in response_lower) * 1.0,
-                "medium": sum(1 for word in indicators["medium"] if word in response_lower) * 0.6,
-                "low": sum(1 for word in indicators["low"] if word in response_lower) * 0.3
-            }
+            # Count indicators with adjusted weights
+            high_matches = sum(1 for word in indicators["high"] if word in response_lower)
+            medium_matches = sum(1 for word in indicators["medium"] if word in response_lower)
+            low_matches = sum(1 for word in indicators["low"] if word in response_lower)
             
-            # Calculate weighted score
-            total_indicators = sum(scores.values())
-            if total_indicators == 0:
-                return 0.5  # Default medium confidence
+            # Base confidence starts at medium (0.5)
+            confidence = 0.5
+            
+            # Adjust confidence based on matches
+            if high_matches > 0:
+                confidence += 0.3 * min(high_matches, 2)  # Max boost of 0.6 from high confidence words
+            if medium_matches > 0:
+                confidence += 0.1 * min(medium_matches, 2)  # Max boost of 0.2 from medium confidence words
+            if low_matches > 0:
+                confidence -= 0.2 * min(low_matches, 2)  # Max reduction of 0.4 from low confidence words
                 
-            confidence = (scores["high"] + scores["medium"] + scores["low"]) / total_indicators
             return min(1.0, max(0.0, confidence))
         except Exception:
             return 0.5  # Default to medium confidence on error

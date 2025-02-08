@@ -145,10 +145,9 @@ class MarketAnalysisService:
         
     def _assess_volume_adequacy(self, daily_volume: float) -> str:
         """Assess if trading volume is adequate"""
-        min_volume = self.config.get("min_liquidity_score", 0.5) * 1000  # Base threshold
-        if daily_volume < min_volume:
+        if daily_volume < 1000:
             return "LOW"
-        elif daily_volume < min_volume * 5:
+        elif daily_volume < 10000:
             return "MEDIUM"
         return "HIGH"
         

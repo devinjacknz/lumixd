@@ -12,21 +12,13 @@ from src.models.base_model import ModelResponse
 def mock_deepseek_model():
     model = MagicMock(spec=DeepSeekModel)
     
-    # Mock successful parsing response
-    model.generate_response.side_effect = [
-        ModelResponse(
-            content="""
-            {
-                "action": "buy",
-                "token_symbol": "SOL",
-                "amount": "1.5",
-                "slippage": "2.0",
-                "urgency": "high"
-            }
-            """,
-            raw_response={"choices": [{"message": {"content": "Analysis"}}]}
-        ),
-        ModelResponse(  # Second call for parameter structuring
+    def generate_response_side_effect(*args, **kwargs):
+        if "Invalid response" in kwargs.get("user_content", ""):
+            return ModelResponse(
+                content="No valid trading parameters found.",
+                raw_response={"choices": [{"message": {"content": "Error"}}]}
+            )
+        return ModelResponse(
             content="""
             {
                 "action": "buy",
@@ -38,7 +30,8 @@ def mock_deepseek_model():
             """,
             raw_response={"choices": [{"message": {"content": "Analysis"}}]}
         )
-    ]
+    
+    model.generate_response.side_effect = generate_response_side_effect
     return model
 
 @pytest.fixture
