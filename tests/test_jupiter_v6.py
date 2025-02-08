@@ -33,28 +33,25 @@ async def test_jupiter_v6_trading():
     # Create client with mocked dependencies
     client = JupiterClient()
     
-    # Set up mock responses
-    mock_response = MagicMock()
-    mock_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
-    mock_response.status = 200
+    # Set up mock responses for get_quote
+    error_response = AsyncMock()
+    error_response.status = 429
+    error_response.json = AsyncMock(return_value={"error": "Too many requests"})
     
-    mock_session = MagicMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_response)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
+    success_response = AsyncMock()
+    success_response.status = 200
+    success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
     
-    # Test retry mechanism
-    error_response = MagicMock()
-    error_response.status = 429  # Too Many Requests
-    error_session = MagicMock()
-    error_session.__aenter__ = AsyncMock(return_value=error_response)
-    error_session.__aexit__ = AsyncMock(return_value=None)
+    # Create mock session for get_quote
+    mock_get = AsyncMock()
+    mock_get.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
+    mock_get.__aexit__ = AsyncMock()
     
-    retry_mock = MagicMock()
-    retry_mock.side_effect = [error_session, error_session, mock_session]  # Fail twice, succeed on third try
+    mock_session = AsyncMock()
+    mock_session.get = AsyncMock(return_value=mock_get)
     
     # Test get_quote with retry mechanism
-    mock_post = MagicMock(side_effect=[error_session, error_session, mock_session])
-    with patch('aiohttp.ClientSession', MagicMock(post=mock_post)), \
+    with patch('aiohttp.ClientSession', return_value=mock_session), \
          patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:  # Mock sleep to avoid actual delays
         quote = await client.get_quote(
             input_mint="So11111111111111111111111111111111111111112",  # SOL
@@ -72,11 +69,22 @@ async def test_jupiter_v6_trading():
         print("✅ get_quote test passed with retry mechanism")
     
     # Test execute_swap with retry mechanism
-    mock_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
+    swap_error_response = AsyncMock()
+    swap_error_response.status = 429
+    swap_error_response.json = AsyncMock(return_value={"error": "Too many requests"})
+    
+    swap_success_response = AsyncMock()
+    swap_success_response.status = 200
+    swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
+    
+    mock_post = AsyncMock()
+    mock_post.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
+    mock_post.__aexit__ = AsyncMock()
+    
+    mock_session.post = AsyncMock(return_value=mock_post)
     wallet_address = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
     
-    mock_post = MagicMock(side_effect=[error_session, mock_session])
-    with patch('aiohttp.ClientSession', MagicMock(post=mock_post)), \
+    with patch('aiohttp.ClientSession', return_value=mock_session), \
          patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:  # Mock sleep to avoid actual delays
         signature = await client.execute_swap(
             quote_response=MOCK_RESPONSES['quote'],
