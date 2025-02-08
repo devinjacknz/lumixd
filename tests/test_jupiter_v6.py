@@ -42,8 +42,10 @@ async def test_jupiter_v6_trading():
     success_response.status = 200
     success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
     
-    # Create mock session for get_quote
+    # Create mock session class for get_quote
     mock_session = AsyncMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock()
     mock_session.get = AsyncMock()
     mock_session.get.return_value = AsyncMock()
     mock_session.get.return_value.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
@@ -97,14 +99,17 @@ async def test_jupiter_v6_trading():
         print("✅ execute_swap test passed with retry mechanism")
     
     # Test error handling
-    error_response = MagicMock()
+    error_response = AsyncMock()
     error_response.status = 500
     error_response.json = AsyncMock(return_value={"error": "Internal server error"})
-    error_session = MagicMock()
-    error_session.__aenter__ = AsyncMock(return_value=error_response)
-    error_session.__aexit__ = AsyncMock(return_value=None)
     
-    with patch('aiohttp.ClientSession.post', return_value=error_session):
+    # Update mock session for error handling
+    mock_session.get = AsyncMock()
+    mock_session.get.return_value = AsyncMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=error_response)
+    mock_session.get.return_value.__aexit__ = AsyncMock()
+    
+    with patch('aiohttp.ClientSession', return_value=mock_session):
         try:
             await client.get_quote(
                 input_mint="So11111111111111111111111111111111111111112",
