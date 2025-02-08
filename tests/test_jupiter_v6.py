@@ -36,11 +36,13 @@ async def test_jupiter_v6_trading():
     # Set up mock responses for get_quote
     error_response = AsyncMock()
     error_response.status = 429
-    error_response.json = AsyncMock(return_value={"error": "Too many requests"})
+    error_response.json.return_value = {"error": "Too many requests"}
+    error_response.raise_for_status = AsyncMock()
     
     success_response = AsyncMock()
     success_response.status = 200
-    success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
+    success_response.json.return_value = MOCK_RESPONSES['quote']
+    success_response.raise_for_status = AsyncMock()
     
     # Create mock session class for get_quote
     mock_response = AsyncMock()
@@ -73,11 +75,13 @@ async def test_jupiter_v6_trading():
     # Test execute_swap with retry mechanism
     swap_error_response = AsyncMock()
     swap_error_response.status = 429
-    swap_error_response.json = AsyncMock(return_value={"error": "Too many requests"})
+    swap_error_response.json.return_value = {"error": "Too many requests"}
+    swap_error_response.raise_for_status = AsyncMock()
     
     swap_success_response = AsyncMock()
     swap_success_response.status = 200
-    swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
+    swap_success_response.json.return_value = MOCK_RESPONSES['swap']
+    swap_success_response.raise_for_status = AsyncMock()
     
     # Create mock response for execute_swap
     mock_swap_response = AsyncMock()
@@ -103,7 +107,8 @@ async def test_jupiter_v6_trading():
     # Test error handling
     error_response = AsyncMock()
     error_response.status = 500
-    error_response.json = AsyncMock(return_value={"error": "Internal server error"})
+    error_response.json.return_value = {"error": "Internal server error"}
+    error_response.raise_for_status = AsyncMock(side_effect=Exception("Internal server error"))
     
     # Create mock response for error handling
     mock_error_response = AsyncMock()
