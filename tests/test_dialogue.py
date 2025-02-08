@@ -62,29 +62,39 @@ async def test_dialogue_trading():
     mock_swap.return_value = "tx_signature_123"
     
     # Apply patches
-    # Create async context manager for patches
-    async with patch('aiohttp.ClientSession.post', new_callable=AsyncMock) as mock_post, \
-             patch('src.data.jupiter_client.JupiterClient.get_quote', new_callable=AsyncMock) as mock_quote, \
-             patch('src.data.jupiter_client.JupiterClient.execute_swap', new_callable=AsyncMock) as mock_swap, \
-             patch('src.models.ollama_model.OllamaModel.generate_response', new_callable=AsyncMock) as mock_generate:
-        
-        # Set up mock responses
-        mock_response = AsyncMock()
-        mock_response.json.return_value = MOCK_RESPONSES['balance']
-        mock_response.status = 200
-        mock_post.return_value.__aenter__.return_value = mock_response
-        
-        mock_quote.return_value = MOCK_RESPONSES['quote']
-        mock_swap.return_value = "tx_signature_123"
-        mock_generate.return_value = ModelResponse(
-            content=json.dumps({
-                'direction': 'buy',
-                'token': 'SOL',
-                'amount': 500,
-                'slippage_bps': 200
-            }),
-            raw_response={'response': 'mocked response'}
-        )
+    # Set up mock responses
+    mock_response = AsyncMock()
+    mock_response.json.return_value = MOCK_RESPONSES['balance']
+    mock_response.status = 200
+    
+    mock_session = AsyncMock()
+    mock_session.__aenter__.return_value = mock_response
+    
+    mock_post = AsyncMock()
+    mock_post.return_value = mock_session
+    
+    mock_quote = AsyncMock()
+    mock_quote.return_value = MOCK_RESPONSES['quote']
+    
+    mock_swap = AsyncMock()
+    mock_swap.return_value = "tx_signature_123"
+    
+    mock_generate = AsyncMock()
+    mock_generate.return_value = ModelResponse(
+        content=json.dumps({
+            'direction': 'buy',
+            'token': 'SOL',
+            'amount': 500,
+            'slippage_bps': 200
+        }),
+        raw_response={'response': 'mocked response'}
+    )
+    
+    # Apply patches using regular context managers
+    with patch('aiohttp.ClientSession.post', mock_post), \
+         patch('src.data.jupiter_client.JupiterClient.get_quote', mock_quote), \
+         patch('src.data.jupiter_client.JupiterClient.execute_swap', mock_swap), \
+         patch('src.models.ollama_model.OllamaModel.generate_response', mock_generate):
         
         agent = TradingAgent()
     
