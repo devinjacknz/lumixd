@@ -13,36 +13,62 @@ os.environ["WALLET_ADDRESS"] = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
 os.environ["RPC_ENDPOINT"] = "https://api.mainnet-beta.solana.com"
 os.environ["SOLANA_PRIVATE_KEY"] = "${walletkey}"  # Use test wallet key from environment
 
-# Mock RPC responses
-MOCK_BALANCE_RESPONSE = {
-    "jsonrpc": "2.0",
-    "result": {
-        "context": {"slot": 1234},
-        "value": 5000000000  # 5 SOL
+# Mock responses
+MOCK_RESPONSES = {
+    'balance': {
+        "jsonrpc": "2.0",
+        "result": {
+            "context": {"slot": 1234},
+            "value": 5000000000  # 5 SOL
+        },
+        "id": "get-balance"
     },
-    "id": "get-balance"
+    'quote': {
+        "inputMint": "So11111111111111111111111111111111111111112",
+        "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "inAmount": "1000000000",
+        "outAmount": "20000000",
+        "otherAmountThreshold": "19800000",
+        "swapMode": "ExactIn",
+        "slippageBps": 200,
+        "platformFee": None,
+        "priceImpactPct": 0.1
+    },
+    'swap': {
+        "swapTransaction": "base64_encoded_transaction",
+        "lastValidBlockHeight": 123456789
+    }
 }
 
 async def test_dialogue_trading():
     """Test bilingual dialogue trading functionality"""
     # Create agent with mocked dependencies
-    with patch('aiohttp.ClientSession.post', new_callable=AsyncMock) as mock_post:
+    with patch('aiohttp.ClientSession.post', new_callable=AsyncMock) as mock_post, \
+         patch('src.data.jupiter_client.JupiterClient.get_quote', new_callable=AsyncMock) as mock_quote, \
+         patch('src.data.jupiter_client.JupiterClient.execute_swap', new_callable=AsyncMock) as mock_swap:
+        
         # Mock RPC responses
-        mock_post.return_value.__aenter__.return_value.json.return_value = MOCK_BALANCE_RESPONSE
+        mock_post.return_value.__aenter__.return_value.json.return_value = MOCK_RESPONSES['balance']
         mock_post.return_value.__aenter__.return_value.status = 200
+        
+        # Mock Jupiter API responses
+        mock_quote.return_value = MOCK_RESPONSES['quote']
+        mock_swap.return_value = "tx_signature_123"
         
         agent = TradingAgent()
     
-    async def test_trade_command(command: str, is_chinese: bool = False, mock_post=None):
+    async def test_trade_command(command: str, is_chinese: bool = False, mock_post=None, mock_quote=None, mock_swap=None):
         """Helper function to test trade commands"""
         print(f"\n🔍 Testing {'Chinese' if is_chinese else 'English'} trading command...")
         print(f"Command: {command}")
         
         try:
-            if mock_post:
-                # Mock RPC response for balance check
-                mock_post.return_value.__aenter__.return_value.json.return_value = MOCK_BALANCE_RESPONSE
+            # Set up mocks if provided
+            if all([mock_post, mock_quote, mock_swap]):
+                mock_post.return_value.__aenter__.return_value.json.return_value = MOCK_RESPONSES['balance']
                 mock_post.return_value.__aenter__.return_value.status = 200
+                mock_quote.return_value = MOCK_RESPONSES['quote']
+                mock_swap.return_value = "tx_signature_123"
             
             response = await agent.execute_dialogue_trade(command)
             print(f"Response: {response}")
@@ -56,10 +82,17 @@ async def test_dialogue_trading():
             # For valid trade commands, verify success
             if "负" not in command and "-" not in command:
                 assert response["status"] == "success", f"Valid trade command should succeed: {response['message']}"
+                if is_chinese:
+                    assert "交易执行成功" in response["message_cn"], "Should have Chinese success message"
+                else:
+                    assert "Trade executed successfully" in response["message"], "Should have English success message"
                 print("✅ Trade command executed successfully")
             else:
                 assert response["status"] == "error", "Invalid trade command should fail"
-                assert "Invalid amount" in response["message"], "Should reject negative amounts"
+                if is_chinese:
+                    assert "金额无效" in response["message_cn"], "Should have Chinese error message"
+                else:
+                    assert "Invalid amount" in response["message"], "Should have English error message"
                 print("✅ Invalid trade command rejected correctly")
             
             return response
@@ -72,22 +105,30 @@ async def test_dialogue_trading():
     cn_response = await test_trade_command(
         "买入500个SOL代币，滑点不超过2%",
         is_chinese=True,
-        mock_post=mock_post
+        mock_post=mock_post,
+        mock_quote=mock_quote,
+        mock_swap=mock_swap
     )
     assert cn_response["status"] == "success", "Valid Chinese trade should succeed"
+    assert "交易执行成功" in cn_response["message_cn"], "Should have Chinese success message"
     
     # Test valid English trading command
     en_response = await test_trade_command(
         "Buy 500 SOL tokens with max 2% slippage",
-        mock_post=mock_post
+        mock_post=mock_post,
+        mock_quote=mock_quote,
+        mock_swap=mock_swap
     )
     assert en_response["status"] == "success", "Valid English trade should succeed"
+    assert "Trade executed successfully" in en_response["message"], "Should have English success message"
     
     # Test error handling in Chinese
     cn_error = await test_trade_command(
         "买入负100个SOL代币",  # Invalid amount
         is_chinese=True,
-        mock_post=mock_post
+        mock_post=mock_post,
+        mock_quote=mock_quote,
+        mock_swap=mock_swap
     )
     assert cn_error["status"] == "error", "Expected error for invalid Chinese input"
     assert "金额无效" in cn_error["message_cn"], "Should have Chinese error message"
@@ -95,10 +136,14 @@ async def test_dialogue_trading():
     # Test error handling in English
     en_error = await test_trade_command(
         "Buy -100 SOL tokens",  # Invalid amount
-        mock_post=mock_post
+        mock_post=mock_post,
+        mock_quote=mock_quote,
+        mock_swap=mock_swap
     )
     assert en_error["status"] == "error", "Expected error for invalid English input"
     assert "Invalid amount" in en_error["message"], "Should have English error message"
+    
+    print("\n✅ All dialogue trading tests completed successfully!")
     
     print("\n✅ All dialogue trading tests completed!")
 
