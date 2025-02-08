@@ -44,9 +44,7 @@ class JupiterClient:
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 250,
-                "onlyDirectRoutes": True,
-                "maxAccounts": 10
+                "slippageBps": 250
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)
@@ -66,9 +64,7 @@ class JupiterClient:
                 "quoteResponse": quote_response,
                 "userPublicKey": wallet_pubkey,
                 "wrapUnwrapSOL": True,
-                "computeUnitPriceMicroLamports": 1000,
-                "asLegacyTransaction": True,
-                "skipPreflight": True
+                "computeUnitPriceMicroLamports": 1000
             }
             cprint(f"🔄 Requesting swap with payload: {json.dumps(payload, indent=2)}", "cyan")
             response = requests.post(url, headers=self.headers, json=payload)
