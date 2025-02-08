@@ -28,7 +28,8 @@ ERROR_MESSAGES = {
 class RaydiumClient:
     """Client for interacting with Raydium V3 API with bilingual support"""
     
-    BASE_URL = "https://api-v3.raydium.io"
+    API_URL = "https://api-v3.raydium.io"  # For price, pool info, etc.
+    TRANSACTION_URL = "https://transaction-v1.raydium.io"  # For quotes and swaps
     
     def __init__(self, retry_attempts: int = 3, retry_delay: float = 1.0, timeout: int = 30):
         """Initialize Raydium client with retry settings
@@ -58,12 +59,13 @@ class RaydiumClient:
         if self.session:
             await self.session.close()
             
-    async def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
+    async def _make_request(self, method: str, endpoint: str, base_url: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """Make HTTP request with retry logic
         
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint
+            base_url: Base URL to use (defaults to API_URL)
             **kwargs: Additional arguments for request
             
         Returns:
@@ -74,10 +76,11 @@ class RaydiumClient:
         """
         attempt = 0
         last_error = None
+        base_url = base_url or self.API_URL
         
         while attempt < self.retry_attempts:
             try:
-                async with getattr(self.session, method.lower())(f"{self.BASE_URL}{endpoint}", **kwargs) as response:
+                async with getattr(self.session, method.lower())(f"{base_url}{endpoint}", **kwargs) as response:
                     response.raise_for_status()
                     data = await response.json()
                     
@@ -97,13 +100,14 @@ class RaydiumClient:
         raise Exception(f"Request failed after {self.retry_attempts} attempts: {str(last_error)}")
         
     async def get_quote(self, input_mint: str, output_mint: str, amount: str) -> Optional[Dict]:
-        """Get quote from Raydium V3 API"""
+        """Get quote from Raydium V3 API using compute/swap-base-in endpoint"""
         try:
             params = {
                 'inputMint': input_mint,
                 'outputMint': output_mint,
                 'amount': amount,
-                'slippage': self.slippage_bps/10000  # Convert to decimal
+                'slippageBps': self.slippage_bps,
+                'txVersion': 'V0'  # Use versioned transactions
             }
             
             print(f"\n🔍 请求报价参数 | Quote request parameters:")
@@ -113,10 +117,11 @@ class RaydiumClient:
             print(f"滑点 | Slippage: {self.slippage_bps/100}%")
             
             try:
-                data = await self._make_request('get', '/quote', params=params, headers=self.headers)
+                data = await self._make_request('get', '/compute/swap-base-in', params=params, base_url=self.TRANSACTION_URL, headers=self.headers)
                 print(f"\n✅ 获取报价成功 | Quote received successfully")
                 print(f"输出数量 | Output amount: {data.get('outAmount', 'unknown')}")
                 print(f"价格影响 | Price impact: {data.get('priceImpact', '0')}%")
+                print(f"交易版本 | Transaction version: {params['txVersion']}")
                 
                 await logging_service.log_user_action(
                     'quote_received',
@@ -217,6 +222,22 @@ class RaydiumClient:
             )
             raise
             
+    async def get_priority_fee(self) -> Dict[str, Any]:
+        """Get priority fee tiers from Raydium API
+        
+        Returns:
+            Dictionary containing priority fee tiers (vh: very high, h: high, m: medium)
+            
+        Raises:
+            Exception: If API request fails
+        """
+        try:
+            data = await self._make_request('get', '/priority-fee', base_url=self.TRANSACTION_URL, headers=self.headers)
+            return data.get('default', {'vh': 1500, 'h': 1000, 'm': 500})  # Default values if not available
+        except Exception as e:
+            logger.warning(f"Failed to get priority fee: {str(e)}")
+            return {'vh': 1500, 'h': 1000, 'm': 500}  # Fallback priority fees
+            
     async def execute_swap(self, quote: Dict, wallet_key: str) -> Optional[str]:
         """Execute swap with proper error handling using Raydium V3 API"""
         try:
@@ -230,8 +251,11 @@ class RaydiumClient:
                 return None
                 
             swap_data = {
-                'quote': quote,
-                'userPublicKey': wallet_key
+                'swapResponse': quote,
+                'txVersion': 'V0',  # Use versioned transactions
+                'wallet': wallet_key,
+                'wrapSol': True,  # Handle SOL wrapping
+                'unwrapSol': True  # Handle SOL unwrapping
             }
             
             await logging_service.log_user_action(
@@ -241,7 +265,11 @@ class RaydiumClient:
             )
             
             try:
-                data = await self._make_request('post', '/swap', json=swap_data, headers=self.headers)
+                # Get priority fee for better execution
+                priority_fee = await self.get_priority_fee()
+                swap_data['computeUnitPriceMicroLamports'] = str(priority_fee['h'])  # Use high priority
+                
+                data = await self._make_request('post', '/transaction/swap-base-in', json=swap_data, base_url=self.TRANSACTION_URL, headers=self.headers)
                 txid = data.get('txid')
                 
                 if txid:
@@ -249,7 +277,8 @@ class RaydiumClient:
                         'swap_success',
                         {
                             'txid': txid,
-                            'status': 'success'
+                            'status': 'success',
+                            'priority_fee': priority_fee['h']
                         },
                         'system'
                     )
