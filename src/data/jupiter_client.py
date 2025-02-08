@@ -166,29 +166,22 @@ class JupiterClient:
                     
                     # Get swap transaction
                     async with session.post(
-                        f"{self.base_url}/v6/swap",
+                        f"{self.base_url}/{self.api_version}/swap",
                         headers=self.headers,
                         json={
                             "quoteResponse": quote_response,
                             "userPublicKey": wallet_pubkey,
                             "wrapUnwrapSOL": True,
                             "asLegacyTransaction": True,
-                            "onlyDirectRoutes": True,
-                            "skipPreflight": True,
-                            "slippageBps": 250,
-                            "swapMode": "ExactIn",
                             "computeUnitPriceMicroLamports": 1000,
-                            "computeUnitLimit": 1400000,
-                            "useTokenLedger": False,
-                            "destinationTokenAccount": None,
-                            "dynamicComputeUnitLimit": False,
+                            "asLegacyTransaction": True,
+                            "wrapUnwrapSOL": True,
                             "useSharedAccounts": True,
-                            "maxAccounts": 54,
-                            "platformFeeBps": 0,
-                            "minContextSlot": None,
-                            "strictValidation": True,
-                            "prioritizationFeeLamports": 10000,
-                            "useVersionedTransaction": False
+                            "computeUnitLimit": 1400000,
+                            "skipUserAccountsCheck": True,
+                            "minContextSlot": quote_response.get("contextSlot"),
+                            "maxAccounts": 64,
+                            "prioritizationFeeLamports": 10000
                         }
                     ) as response:
                         response.raise_for_status()
