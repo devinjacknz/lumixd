@@ -21,6 +21,7 @@ from src.strategies.snap_strategy import SnapStrategy
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
 from src.data.chainstack_client import ChainStackClient
+from src.api.v1.routes.trades import TradeRequest
 import json
 from pathlib import Path
 from src.config import (
@@ -242,13 +243,13 @@ class TradingAgent:
         except Exception as e:
             return False, f"Error checking balances: {str(e)}"
 
-    def execute_trade(self, token: str | None, direction: str, amount: float, instance_config: Optional[Dict[str, Any]] = None) -> bool:
-        """Execute trade based on signal with instance-specific configuration"""
+    def execute_trade(self, trade_request: TradeRequest) -> bool:
+        """Execute trade based on trade request"""
         if not self.active:
             cprint(f"❌ Instance {self.instance_id} is not active", "red")
             return False
         try:
-            if not token:
+            if not trade_request.output_token:
                 cprint("❌ Trade failed: No token specified", "red")
                 return False
                 
@@ -267,24 +268,25 @@ class TradingAgent:
             jupiter.slippage_bps = SLIPPAGE
             
             # Calculate SOL amount for trade
-            trade_amount = min(amount, MAX_ORDER_SIZE_SOL)
+            trade_amount = min(trade_request.amount_sol, MAX_ORDER_SIZE_SOL)
             client = ChainStackClient()
             start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
             
-            if direction == 'BUY':
-                success = market_buy(str(token), trade_amount, SLIPPAGE)
-            elif direction == 'SELL':
-                success = market_sell(str(token), trade_amount, SLIPPAGE)
-            else:
-                return False
+            jupiter = JupiterClient()
+            success = jupiter.execute_swap(
+                input_token=trade_request.input_token,
+                output_token=trade_request.output_token,
+                amount=trade_amount,
+                slippage_bps=trade_request.slippage_bps
+            )
                 
             if success:
                 end_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
-                gas_cost = start_balance - end_balance - (trade_amount if direction == 'SELL' else 0)
+                gas_cost = start_balance - end_balance - trade_amount
                 metrics = {
                     'instance_id': self.instance_id,
-                    'token': token,
-                    'direction': direction,
+                    'token': trade_request.output_token,
+                    'direction': 'BUY',
                     'amount': trade_amount,
                     'execution_time': 0,  # Will be set by caller
                     'slippage': self.slippage * 100,
@@ -465,7 +467,7 @@ class TradingAgent:
         if not instance_config:
             instance_config = {}
             
-        trading_interval = instance_config.get('interval_minutes', TRADING_INTERVAL)
+        trading_interval = instance_config.get('interval_minutes', TRADE_INTERVAL)
         trade_size = instance_config.get('amount_sol', MIN_TRADE_SIZE_SOL)
         focus_tokens = instance_config.get('tokens', FOCUS_TOKENS)
         
@@ -504,11 +506,15 @@ class TradingAgent:
                                 trade_size *= min(params.get('size', 1.0), instance_config.get('max_position_multiplier', 1.0))
                                 
                             start_time = time.time()
-                            success = self.execute_trade(
-                                token=token,
-                                direction=analysis['action'],
-                                amount=trade_size
+                            trade_request = TradeRequest(
+                                input_token="So11111111111111111111111111111111111111112",
+                                output_token=token,
+                                amount_sol=trade_size,
+                                slippage_bps=self.slippage,
+                                use_shared_accounts=True,
+                                force_simpler_route=True
                             )
+                            success = self.execute_trade(trade_request)
                             execution_time = int((time.time() - start_time) * 1000)
                             
                             self.performance_monitor.log_trade_metrics({
