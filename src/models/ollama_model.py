@@ -7,7 +7,12 @@ import os
 import json
 import re
 import requests
+from typing import Dict, Any, Optional
 from .base_model import BaseModel, ModelResponse
+
+# Constants
+DEFAULT_SLIPPAGE_BPS = 200  # 2%
+DEFAULT_AMOUNT = 0
 
 class OllamaModel(BaseModel):
     @property
@@ -193,58 +198,55 @@ class OllamaModel(BaseModel):
             }
             
         try:
-            # Try to parse JSON from response
-            content = response.content
-            if isinstance(content, str):
-                # Clean up content
-                content = content.replace('```json', '').replace('```', '').strip()
-                content = ' '.join(line.strip() for line in content.split('\n'))
+            result = None
+            # Extract parameters directly from instruction
+            try:
+                # Determine direction
+                direction = 'buy' if ('买入' in instruction or 'buy' in instruction.lower()) else 'sell'
                 
-                # Look for JSON-like structure
-                start_idx = content.find('{')
-                end_idx = content.rfind('}')
-                if start_idx >= 0 and end_idx > start_idx:
-                    json_str = content[start_idx:end_idx + 1]
-                    # Clean up JSON string
-                    json_str = re.sub(r'[^\x00-\x7F]+', '', json_str)  # Remove non-ASCII chars
-                    json_str = re.sub(r'(?<!["{\s,])\s*:\s*(?![\s,}"])', '": "', json_str)  # Fix missing quotes
-                    json_str = re.sub(r'(?<=[}\]"])\s*(?=,)', '', json_str)  # Fix spacing
-                    json_str = re.sub(r'(?<=[{\s,])"?(\d+(?:\.\d+)?)"?(?=\s*[,}])', r'\1', json_str)  # Fix quoted numbers
-                    json_str = re.sub(r'"\s*,\s*}', '"}', json_str)  # Fix trailing commas
-                    result = json.loads(json_str)
-                    
-                    # Map trade parameters
-                    if 'trade_type' in result:
-                        result['direction'] = result['trade_type']
-                    elif '买入' in instruction or 'buy' in instruction.lower():
-                        result['direction'] = 'buy'
-                    elif '卖出' in instruction or 'sell' in instruction.lower():
-                        result['direction'] = 'sell'
-                        
-                    # Convert amount to number if it's a string
-                    if 'amount' in result and isinstance(result['amount'], str):
+                # Extract amount using string operations
+                numbers = []
+                for word in instruction.split():
+                    try:
+                        num = float(word.replace(',', ''))
+                        numbers.append(num)
+                    except ValueError:
+                        continue
+                amount = numbers[0] if numbers else DEFAULT_AMOUNT
+                
+                # Extract slippage using string operations
+                slippage = DEFAULT_SLIPPAGE_BPS
+                for word in instruction.split():
+                    if '%' in word:
                         try:
-                            result['amount'] = float(result['amount'].replace(',', ''))
-                        except (ValueError, TypeError):
-                            pass
-                            
-                    # Handle slippage
-                    if 'slippage' in result:
-                        try:
-                            result['slippage_bps'] = int(float(result['slippage']) * 100)
-                        except (ValueError, TypeError):
-                            result['slippage_bps'] = 250  # Default 2.5%
-                    elif 'slippage_bps' not in result:
-                        # Try to extract slippage from instruction
-                        import re
-                        slippage_match = re.search(r'(\d+(?:\.\d+)?)%', instruction)
-                        if slippage_match:
-                            result['slippage_bps'] = int(float(slippage_match.group(1)) * 100)
-                        else:
-                            result['slippage_bps'] = 250  # Default 2.5%
-                    
-                    return result
-                    
+                            slippage = int(float(word.replace('%', '')) * 100)
+                            break
+                        except ValueError:
+                            continue
+                
+                # Validate parameters
+                if amount <= 0:
+                    return {
+                        'error': 'Invalid amount',
+                        'error_cn': '金额无效'
+                    }
+                
+                result = {
+                    'direction': direction,
+                    'token': 'SOL',
+                    'amount': amount,
+                    'slippage_bps': slippage
+                }
+                except Exception as e:
+                    return {
+                        'error': f'Failed to parse instruction: {str(e)}',
+                        'error_cn': f'无法解析指令：{str(e)}'
+                    }
+            
+            # Return the result if we have one
+            if result:
+                return result
+                
             return {
                 'error': 'Invalid response format',
                 'error_cn': '响应格式无效'
@@ -313,4 +315,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                                                                          
+            }                                                                                                                          
