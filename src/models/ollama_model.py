@@ -198,50 +198,47 @@ class OllamaModel(BaseModel):
             }
             
         try:
-            result = None
-            # Extract parameters directly from instruction
-            try:
-                # Determine direction
-                direction = 'buy' if ('买入' in instruction or 'buy' in instruction.lower()) else 'sell'
-                
-                # Extract amount using string operations
-                numbers = []
-                for word in instruction.split():
+            # Determine direction
+            direction = 'buy' if ('买入' in instruction or 'buy' in instruction.lower()) else 'sell'
+            
+            # Extract amount using string operations
+            numbers = []
+            for word in instruction.split():
+                try:
+                    num = float(word.replace(',', ''))
+                    numbers.append(num)
+                except ValueError:
+                    continue
+            amount = numbers[0] if numbers else DEFAULT_AMOUNT
+            
+            # Extract slippage using string operations
+            slippage = DEFAULT_SLIPPAGE_BPS
+            for word in instruction.split():
+                if '%' in word:
                     try:
-                        num = float(word.replace(',', ''))
-                        numbers.append(num)
+                        slippage = int(float(word.replace('%', '')) * 100)
+                        break
                     except ValueError:
                         continue
-                amount = numbers[0] if numbers else DEFAULT_AMOUNT
-                
-                # Extract slippage using string operations
-                slippage = DEFAULT_SLIPPAGE_BPS
-                for word in instruction.split():
-                    if '%' in word:
-                        try:
-                            slippage = int(float(word.replace('%', '')) * 100)
-                            break
-                        except ValueError:
-                            continue
-                
-                # Validate parameters
-                if amount <= 0:
-                    return {
-                        'error': 'Invalid amount',
-                        'error_cn': '金额无效'
-                    }
-                
-                result = {
-                    'direction': direction,
-                    'token': 'SOL',
-                    'amount': amount,
-                    'slippage_bps': slippage
+            
+            # Validate parameters
+            if amount <= 0:
+                return {
+                    'error': 'Invalid amount',
+                    'error_cn': '金额无效'
                 }
-                except Exception as e:
-                    return {
-                        'error': f'Failed to parse instruction: {str(e)}',
-                        'error_cn': f'无法解析指令：{str(e)}'
-                    }
+            
+            return {
+                'direction': direction,
+                'token': 'SOL',
+                'amount': amount,
+                'slippage_bps': slippage
+            }
+        except Exception as e:
+            return {
+                'error': f'Failed to parse instruction: {str(e)}',
+                'error_cn': f'无法解析指令：{str(e)}'
+            }
             
             # Return the result if we have one
             if result:
@@ -315,4 +312,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                                                                                                                          
+            }                                                                                                                                  
