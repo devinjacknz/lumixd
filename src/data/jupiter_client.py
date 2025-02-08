@@ -21,7 +21,8 @@ load_dotenv()
 
 class JupiterClient:
     def __init__(self):
-        self.base_url = "https://quote-api.jup.ag/v6"
+        self.base_url = "https://quote-api.jup.ag"
+        self.api_version = "v6"
         self.headers = {"Content-Type": "application/json"}
         self.slippage_bps = 250
         self.max_retries = 3
@@ -53,7 +54,7 @@ class JupiterClient:
                 }
             
             await self._rate_limit()
-            url = f"{self.base_url}/quote"
+            url = f"{self.base_url}/{self.api_version}/quote"
             params = {
                 "inputMint": input_mint,
                 "outputMint": output_mint,
@@ -105,7 +106,7 @@ class JupiterClient:
             async with aiohttp.ClientSession() as session:
                 # Get swap transaction
                 async with session.post(
-                    f"{self.base_url}/v6/swap",
+                    f"{self.base_url}/{self.api_version}/swap",
                     headers=self.headers,
                     json={
                         "quoteResponse": quote_response,
