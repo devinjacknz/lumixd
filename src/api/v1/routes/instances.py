@@ -22,7 +22,7 @@ def check_rate_limit(instance_id: str) -> None:
             detail=f"Rate limit exceeded. Maximum {MAX_REQUESTS} requests per {WINDOW_SECONDS} second(s)"
         )
     request_times[instance_id].append(now)
-from src.services.instance_manager import InstanceManager
+from src.services.instance_manager import InstanceManager, TradingInstance
 from src.services.balance_manager import BalanceManager
 from src.api.v1.models.trading_instance import (
     TradingInstance,
