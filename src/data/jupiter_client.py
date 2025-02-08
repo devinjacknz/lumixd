@@ -92,11 +92,62 @@ class JupiterClient:
             if not blockhash:
                 raise ValueError("Failed to get blockhash")
                 
-            # Decode and sign transaction
+            # Get swap instructions
+            response = requests.post(
+                f"{self.base_url}/swap-instructions",
+                headers=self.headers,
+                json={
+                    "quoteResponse": quote_response,
+                    "userPublicKey": wallet_pubkey,
+                    "computeUnitPriceMicroLamports": 1000,
+                    "asLegacyTransaction": True,
+                    "useSharedAccounts": True,
+                    "dynamicComputeUnitLimit": True
+                }
+            )
+            response.raise_for_status()
+            instructions = response.json()
+            
+            # Get recent blockhash
+            response = requests.post(
+                self.rpc_url,
+                headers=self.headers,
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "get-blockhash",
+                    "method": "getLatestBlockhash",
+                    "params": [{"commitment": "confirmed"}]
+                }
+            )
+            response.raise_for_status()
+            blockhash = response.json().get("result", {}).get("value", {}).get("blockhash")
+            if not blockhash:
+                raise ValueError("Failed to get blockhash")
+                
+            # Create and sign transaction
             wallet_key = Keypair.from_base58_string(os.getenv("SOLANA_PRIVATE_KEY"))
-            tx_bytes = base64.b64decode(tx_data)
-            tx = Transaction.from_bytes(tx_bytes)
-            tx.message.recent_blockhash = Hash.from_string(blockhash)
+            tx = Transaction()
+            tx.recent_blockhash = Hash.from_string(blockhash)
+            tx.fee_payer = wallet_key.public_key
+            
+            # Add compute budget instructions
+            if instructions.get("computeBudgetInstructions"):
+                for ix in instructions["computeBudgetInstructions"]:
+                    tx.add(Transaction.from_bytes(base64.b64decode(ix["data"])))
+            
+            # Add setup instructions
+            if instructions.get("setupInstructions"):
+                for ix in instructions["setupInstructions"]:
+                    tx.add(Transaction.from_bytes(base64.b64decode(ix["data"])))
+            
+            # Add swap instruction
+            if instructions.get("swapInstruction"):
+                tx.add(Transaction.from_bytes(base64.b64decode(instructions["swapInstruction"]["data"])))
+            
+            # Add cleanup instruction
+            if instructions.get("cleanupInstruction"):
+                tx.add(Transaction.from_bytes(base64.b64decode(instructions["cleanupInstruction"]["data"])))
+            
             tx.sign([wallet_key])
             signed_tx = base64.b64encode(bytes(tx)).decode('utf-8')
             
