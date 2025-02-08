@@ -33,7 +33,6 @@ from src.api.v1.models.instance_validator import InstanceValidator
 from src.api.v1.models.strategy import Strategy
 from src.api.v1.routes.trades import TradeRequest
 from src.api.v1.routes.strategies import strategies_db
-from src.services.instance_manager import InstanceManager
 
 def get_instance_manager() -> InstanceManager:
     raise NotImplementedError()
@@ -95,7 +94,7 @@ async def list_instances(
     for instance in instances:
         metrics_data = instance_manager.get_instance_metrics(instance.id)
         if metrics_data:
-            instance.metrics = InstanceMetrics(**metrics_data)
+            instance.metrics = metrics_data
     return instances
 
 @router.get("/{instance_id}")
