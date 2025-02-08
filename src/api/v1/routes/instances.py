@@ -93,9 +93,9 @@ async def list_instances(
 ):
     instances = list(instances_db.values())
     for instance in instances:
-        metrics = instance_manager.get_instance_metrics(instance.id)
-        if metrics:
-            instance.metrics = metrics
+        metrics_data = instance_manager.get_instance_metrics(instance.id)
+        if metrics_data:
+            instance.metrics = InstanceMetrics(**metrics_data)
     return instances
 
 @router.get("/{instance_id}")

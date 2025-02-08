@@ -2,6 +2,16 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
+class InstanceMetrics(BaseModel):
+    total_trades: int = 0
+    successful_trades: int = 0
+    total_volume: float = 0.0
+    profit_loss: float = 0.0
+    last_trade_time: Optional[datetime] = None
+    last_trade_status: Optional[str] = None
+    wallet_balance: Optional[float] = None
+    active_trades: int = 0
+
 class TradingInstance(BaseModel):
     id: str
     name: str
@@ -24,6 +34,7 @@ class TradingInstance(BaseModel):
         "total_volume": 0.0,
         "profit_loss": 0.0
     }
+    metrics: Optional[InstanceMetrics] = None
 
 class TradingInstanceCreate(BaseModel):
     name: str
