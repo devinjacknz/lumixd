@@ -634,6 +634,122 @@ class TradingAgent(BaseAgent):
     def toggle_active(self) -> bool:
         self.active = not self.active
         return self.active
+        
+    async def execute_dialogue_trade(self, dialogue_input: str) -> dict:
+        """Execute trade based on dialogue input with bilingual support"""
+        try:
+            # Parse trading instruction using DeepSeek model
+            if not self.model:
+                return {
+                    'status': 'error',
+                    'message': 'Model not initialized',
+                    'message_cn': '模型未初始化'
+                }
+                
+            trade_params = await self.model.analyze_trade(dialogue_input)
+            if not trade_params or 'error' in trade_params:
+                return {
+                    'status': 'error',
+                    'message': trade_params.get('error', 'Failed to parse trade instruction'),
+                    'message_cn': trade_params.get('error_cn', '无法解析交易指令')
+                }
+                
+            # Validate parameters
+            token = trade_params.get('token', '').upper()
+            amount = float(trade_params.get('amount', 0))
+            direction = trade_params.get('direction', '').lower()
+            slippage_bps = int(trade_params.get('slippage_bps', self.slippage))
+            
+            # Convert token symbol to address
+            if token == 'SOL':
+                token = self.sol_token
+            elif token == 'USDC':
+                token = USDC_ADDRESS
+                
+            # Validate token address format
+            if not token or len(token) != 44:  # Solana addresses are 44 characters
+                return {
+                    'status': 'error',
+                    'message': 'Invalid token address',
+                    'message_cn': '代币地址无效'
+                }
+            
+            if not token or amount <= 0 or direction not in ['buy', 'sell']:
+                return {
+                    'status': 'error',
+                    'message': 'Invalid trade parameters',
+                    'message_cn': '交易参数无效'
+                }
+                
+            # Check balances and risk limits
+            balances_ok, balance_msg = await self.check_balances()
+            if not balances_ok:
+                return {
+                    'status': 'error',
+                    'message': f'Insufficient balance: {balance_msg}',
+                    'message_cn': f'余额不足：{balance_msg}'
+                }
+                
+            # Check risk limits
+            risk_ok = await self._check_risk_limits()
+            if not risk_ok:
+                return {
+                    'status': 'error',
+                    'message': 'Risk limits exceeded',
+                    'message_cn': '超出风险限制'
+                }
+                
+            # Get risk analysis from model
+            if not self.model:
+                return {
+                    'status': 'error',
+                    'message': 'Model not initialized',
+                    'message_cn': '模型未初始化'
+                }
+                
+            risk_check = await self.model.check_risk_dialogue({
+                'token': token,
+                'amount': amount,
+                'direction': direction,
+                'slippage': slippage_bps / 10000
+            })
+            
+            if not risk_check.get('approved', False):
+                return {
+                    'status': 'rejected',
+                    'message': risk_check.get('reason', 'Risk check failed'),
+                    'message_cn': risk_check.get('reason_cn', '风险检查未通过')
+                }
+                
+            # Execute trade
+            trade_request = {
+                'token': token,
+                'amount': amount,
+                'direction': direction,
+                'slippage_bps': slippage_bps
+            }
+            
+            signature = await self.execute_trade(trade_request)
+            if signature:
+                return {
+                    'status': 'success',
+                    'message': f'Trade executed successfully: {signature}',
+                    'message_cn': f'交易执行成功：{signature}',
+                    'signature': signature
+                }
+            else:
+                return {
+                    'status': 'error',
+                    'message': 'Trade execution failed',
+                    'message_cn': '交易执行失败'
+                }
+                
+        except Exception as e:
+            return {
+                'status': 'error',
+                'message': f'Error executing trade: {str(e)}',
+                'message_cn': f'交易执行错误：{str(e)}'
+            }
 
     def get_instance_metrics(self) -> Dict[str, Any]:
         return {
