@@ -43,12 +43,11 @@ async def test_jupiter_v6_trading():
     success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
     
     # Create mock session for get_quote
-    mock_get = AsyncMock()
-    mock_get.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
-    mock_get.__aexit__ = AsyncMock()
-    
     mock_session = AsyncMock()
-    mock_session.get = AsyncMock(return_value=mock_get)
+    mock_session.get = AsyncMock()
+    mock_session.get.return_value = AsyncMock()
+    mock_session.get.return_value.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
+    mock_session.get.return_value.__aexit__ = AsyncMock()
     
     # Test get_quote with retry mechanism
     with patch('aiohttp.ClientSession', return_value=mock_session), \
@@ -77,11 +76,11 @@ async def test_jupiter_v6_trading():
     swap_success_response.status = 200
     swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
     
-    mock_post = AsyncMock()
-    mock_post.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
-    mock_post.__aexit__ = AsyncMock()
-    
-    mock_session.post = AsyncMock(return_value=mock_post)
+    # Update mock session for execute_swap
+    mock_session.post = AsyncMock()
+    mock_session.post.return_value = AsyncMock()
+    mock_session.post.return_value.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
+    mock_session.post.return_value.__aexit__ = AsyncMock()
     wallet_address = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
     
     with patch('aiohttp.ClientSession', return_value=mock_session), \
