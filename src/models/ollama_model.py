@@ -47,6 +47,118 @@ class OllamaModel(BaseModel):
             print("Model not initialized")
             return None
             
+    async def analyze_trade(self, instruction: str) -> dict:
+        """Analyze trading instruction and return structured data"""
+        system_prompt = """你是一个专业的Solana生态DeFi交易助手。分析用户的交易指令并返回JSON格式的结果。
+
+示例输入 | Example input:
+"买入500个SOL代币，滑点不超过2%"
+"Buy 500 SOL tokens with max 2% slippage"
+
+示例输出 | Example output:
+{
+    "trade_type": "buy",
+    "token": "SOL",
+    "amount": "500",
+    "slippage": "2",
+    "input_mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "output_mint": "So11111111111111111111111111111111111111112"
+}"""
+        
+        response = self.generate_response(
+            system_prompt=system_prompt,
+            user_content=instruction,
+            temperature=0.7
+        )
+        
+        if not response:
+            return {
+                'error': 'Failed to generate response',
+                'error_cn': '无法生成响应'
+            }
+            
+        try:
+            # Try to parse JSON from response
+            content = response.content
+            if isinstance(content, str):
+                # Look for JSON-like structure
+                start_idx = content.find('{')
+                end_idx = content.rfind('}')
+                if start_idx >= 0 and end_idx > start_idx:
+                    json_str = content[start_idx:end_idx + 1]
+                    result = json.loads(json_str)
+                    return result
+                    
+            return {
+                'error': 'Invalid response format',
+                'error_cn': '响应格式无效'
+            }
+        except json.JSONDecodeError:
+            return {
+                'error': 'Failed to parse response',
+                'error_cn': '无法解析响应'
+            }
+            
+    async def check_risk_dialogue(self, trade_request: dict) -> dict:
+        """Risk check with bilingual dialogue"""
+        system_prompt = """你是一个专业的风险管理助手，负责分析交易风险。
+You are a professional risk management assistant analyzing trade risks.
+
+请分析以下交易风险并返回JSON格式结果 | Please analyze the following trade risk and return JSON result:
+
+示例输出 | Example output:
+{
+    "risk_level": "low/medium/high",
+    "approved": true/false,
+    "reason": "Risk analysis explanation in both languages",
+    "warnings": ["Warning 1", "警告 1"],
+    "suggestions": ["Suggestion 1", "建议 1"]
+}"""
+        
+        risk_prompt = f"""
+分析以下交易风险 | Analyze trade risk:
+代币 | Token: {trade_request.get('token', 'Unknown')}
+数量 | Amount: {trade_request.get('amount', '0')}
+方向 | Direction: {trade_request.get('direction', 'Unknown')}
+滑点 | Slippage: {trade_request.get('slippage', '2.5')}%"""
+        
+        response = self.generate_response(
+            system_prompt=system_prompt,
+            user_content=risk_prompt,
+            temperature=0.7
+        )
+        
+        if not response:
+            return {
+                'error': 'Failed to generate response',
+                'error_cn': '无法生成响应',
+                'approved': False
+            }
+            
+        try:
+            # Try to parse JSON from response
+            content = response.content
+            if isinstance(content, str):
+                # Look for JSON-like structure
+                start_idx = content.find('{')
+                end_idx = content.rfind('}')
+                if start_idx >= 0 and end_idx > start_idx:
+                    json_str = content[start_idx:end_idx + 1]
+                    result = json.loads(json_str)
+                    return result
+                    
+            return {
+                'error': 'Invalid response format',
+                'error_cn': '响应格式无效',
+                'approved': False
+            }
+        except json.JSONDecodeError:
+            return {
+                'error': 'Failed to parse response',
+                'error_cn': '无法解析响应',
+                'approved': False
+            }
+            
         try:
             data = {
                 "model": self.model_name,
@@ -64,4 +176,4 @@ class OllamaModel(BaseModel):
             
         except Exception as e:
             print(f"Error generating response: {e}")
-            return None  
+            return None    
