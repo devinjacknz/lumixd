@@ -660,21 +660,19 @@ class TradingAgent(BaseAgent):
             direction = trade_params.get('direction', '').lower()
             slippage_bps = int(trade_params.get('slippage_bps', self.slippage))
             
+            # Basic parameter validation
+            if not token or amount <= 0 or direction not in ['buy', 'sell']:
+                return {
+                    'status': 'error',
+                    'message': 'Invalid trade parameters',
+                    'message_cn': '交易参数无效'
+                }
+                
             # Convert token symbol to address
             if token == 'SOL':
                 token = self.sol_token
             elif token == 'USDC':
                 token = USDC_ADDRESS
-                
-            # Validate token address format
-            if not token or len(token) != 44:  # Solana addresses are 44 characters
-                return {
-                    'status': 'error',
-                    'message': 'Invalid token address',
-                    'message_cn': '代币地址无效'
-                }
-            
-            if not token or amount <= 0 or direction not in ['buy', 'sell']:
                 return {
                     'status': 'error',
                     'message': 'Invalid trade parameters',
