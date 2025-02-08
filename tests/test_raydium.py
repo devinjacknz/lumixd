@@ -35,6 +35,7 @@ MOCK_RESPONSES = {
     }
 }
 
+@pytest.mark.asyncio
 async def test_get_pool_info():
     """Test pool information retrieval"""
     async with RaydiumClient() as client:
@@ -47,6 +48,7 @@ async def test_get_pool_info():
             result = await client.get_pool_info(["pool_id_1"])
             assert result == MOCK_RESPONSES['pool_info']["data"]
             
+@pytest.mark.asyncio
 async def test_get_token_price():
     """Test token price retrieval"""
     async with RaydiumClient() as client:
@@ -59,6 +61,7 @@ async def test_get_token_price():
             result = await client.get_token_price("token_mint_address")
             assert result == Decimal("1.234567")
             
+@pytest.mark.asyncio
 async def test_error_handling():
     """Test error handling for failed requests"""
     error_response = {
@@ -77,6 +80,7 @@ async def test_error_handling():
                 await client.get_pool_info(["pool_id_1"])
             assert "API error message" in str(exc_info.value)
             
+@pytest.mark.asyncio
 async def test_retry_mechanism():
     """Test retry mechanism for failed requests"""
     success_response = MOCK_RESPONSES['pool_info']
