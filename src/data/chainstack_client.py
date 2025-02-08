@@ -42,10 +42,11 @@ class ChainStackClient:
             time.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    def _post_rpc(self, method: str, params: list, retry_count: int = 0) -> dict:
+    async def _post_rpc(self, method: str, params: list, retry_count: int = 0) -> dict:
         self._rate_limit()
         try:
-            response = requests.post(
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: requests.post(
                 self.base_url,
                 headers=self.headers,
                 json={
@@ -55,7 +56,7 @@ class ChainStackClient:
                     "params": params
                 },
                 timeout=self.timeout
-            )
+            ))
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -92,19 +93,19 @@ class ChainStackClient:
             cprint(f"❌ Batch RPC call failed: {str(e)}", "red")
             return []
             
-    def get_token_price(self, token_address: str) -> float:
-        response = self._post_rpc("getTokenLargestAccounts", [token_address])
+    async def get_token_price(self, token_address: str) -> float:
+        response = await self._post_rpc("getTokenLargestAccounts", [token_address])
         if "result" in response and "value" in response["result"]:
             largest_account = response["result"]["value"][0]
             return float(largest_account["amount"]) / 1e9
         return 0.0
             
-    def get_wallet_balance(self, wallet_address: str) -> float:
+    async def get_wallet_balance(self, wallet_address: str) -> float:
         try:
             if not wallet_address:
                 cprint("❌ Invalid wallet address", "red")
                 return 0.0
-            response = self._post_rpc("getBalance", [wallet_address])
+            response = await self._post_rpc("getBalance", [wallet_address])
             if "result" in response:
                 balance = float(response["result"]["value"]) / 1e9
                 cprint(f"✅ SOL Balance: {balance:.6f}", "green")
@@ -115,8 +116,8 @@ class ChainStackClient:
             cprint(f"❌ Error getting wallet balance: {str(e)}", "red")
             return 0.0
 
-    def get_token_data(self, token_address: str, days_back: int = 3, timeframe: str = '1H') -> pd.DataFrame:
-        response = self._post_rpc("getTokenLargestAccounts", [token_address])
+    async def get_token_data(self, token_address: str, days_back: int = 3, timeframe: str = '1H') -> pd.DataFrame:
+        response = await self._post_rpc("getTokenLargestAccounts", [token_address])
         if "result" not in response or "value" not in response["result"]:
             return pd.DataFrame()
             
@@ -152,20 +153,20 @@ class ChainStackClient:
         rs = gain / loss
         return 100 - (100 / (1 + rs))
         
-    def get_token_metadata(self, address: str) -> dict:
-        response = self._post_rpc("getAccountInfo", [address, {"encoding": "jsonParsed"}])
+    async def get_token_metadata(self, address: str) -> dict:
+        response = await self._post_rpc("getAccountInfo", [address, {"encoding": "jsonParsed"}])
         return response.get("result", {}).get("value", {})
         
-    def get_token_holders(self, address: str) -> list:
-        response = self._post_rpc("getTokenLargestAccounts", [address])
+    async def get_token_holders(self, address: str) -> list:
+        response = await self._post_rpc("getTokenLargestAccounts", [address])
         return response.get("result", {}).get("value", [])
         
-    def get_token_supply(self, address: str) -> dict:
-        response = self._post_rpc("getTokenSupply", [address])
+    async def get_token_supply(self, address: str) -> dict:
+        response = await self._post_rpc("getTokenSupply", [address])
         return response.get("result", {}).get("value", {})
         
-    def get_signatures_for_address(self, address: str, limit: int = 1) -> list:
-        response = self._post_rpc("getSignaturesForAddress", [address, {"limit": limit}])
+    async def get_signatures_for_address(self, address: str, limit: int = 1) -> list:
+        response = await self._post_rpc("getSignaturesForAddress", [address, {"limit": limit}])
         return response.get("result", [])
 
     async def subscribe_token_updates(self, token_address: str, callback) -> None:
