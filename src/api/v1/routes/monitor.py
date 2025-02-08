@@ -6,12 +6,14 @@ from typing import Dict
 import psutil
 import asyncio
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from src.data.chainstack_client import ChainStackClient
 from src.data.jupiter_client import JupiterClient
 
 router = APIRouter()
 chainstack_client = ChainStackClient()
 jupiter_client = JupiterClient()
+executor = ThreadPoolExecutor(max_workers=4)
 
 @router.post("/status")
 async def get_system_status() -> Dict:
@@ -31,14 +33,12 @@ async def get_system_status() -> Dict:
         # Check Jupiter connection
         jupiter_status = "ok"
         try:
-            loop = asyncio.get_event_loop()
-            quote = await loop.run_in_executor(
-                None,
-                lambda: jupiter_client.get_quote(
-                    input_mint="So11111111111111111111111111111111111111112",
-                    output_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
-                    amount="1000000000"  # 1 SOL
-                )
+            quote = await asyncio.get_event_loop().run_in_executor(
+                executor,
+                jupiter_client.get_quote,
+                "So11111111111111111111111111111111111111112",  # input_mint
+                "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # output_mint (USDC)
+                "1000000000"  # amount (1 SOL)
             )
             if not quote:
                 jupiter_status = "error: failed to get quote"
