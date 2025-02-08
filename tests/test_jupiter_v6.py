@@ -53,9 +53,9 @@ async def test_jupiter_v6_trading():
     retry_mock.side_effect = [error_session, error_session, mock_session]  # Fail twice, succeed on third try
     
     # Test get_quote with retry mechanism
-    with patch('aiohttp.ClientSession.post', side_effect=[error_session, error_session, mock_session]), \
+    mock_post = MagicMock(side_effect=[error_session, error_session, mock_session])
+    with patch('aiohttp.ClientSession', MagicMock(post=mock_post)), \
          patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:  # Mock sleep to avoid actual delays
-        start_time = time.time()
         quote = await client.get_quote(
             input_mint="So11111111111111111111111111111111111111112",  # SOL
             output_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
@@ -74,8 +74,9 @@ async def test_jupiter_v6_trading():
     # Test execute_swap with retry mechanism
     mock_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
     wallet_address = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
-        
-    with patch('aiohttp.ClientSession.post', side_effect=[error_session, mock_session]), \
+    
+    mock_post = MagicMock(side_effect=[error_session, mock_session])
+    with patch('aiohttp.ClientSession', MagicMock(post=mock_post)), \
          patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:  # Mock sleep to avoid actual delays
         signature = await client.execute_swap(
             quote_response=MOCK_RESPONSES['quote'],
