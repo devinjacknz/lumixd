@@ -2,6 +2,7 @@
 Lumix DeepSeek Model Implementation
 """
 
+import os
 import json
 import time
 from openai import OpenAI
@@ -114,4 +115,4 @@ class DeepSeekModel(BaseModel):
     
     @property
     def model_type(self) -> str:
-        return "deepseek"                                                                                                                                                                                                                
+        return "deepseek"                                                                                                                                                                                                                                

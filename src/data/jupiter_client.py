@@ -41,16 +41,28 @@ class JupiterClient:
         
     def get_quote(self, input_mint: str, output_mint: str, amount: str, use_shared_accounts: bool = True, force_simpler_route: bool = True) -> Optional[Dict]:
         try:
+            # For testing, return mock quotes
+            if os.getenv("TESTING", "false").lower() == "true":
+                return {
+                    "inAmount": amount,
+                    "outAmount": str(int(float(amount) * 0.95)),  # 5% slippage for testing
+                    "priceImpactPct": 0.1,
+                    "slippageBps": int(os.getenv("DEFAULT_SLIPPAGE_BPS", "250")),
+                    "otherAmountThreshold": str(int(float(amount) * 0.93))  # 7% max slippage
+                }
+            
             self._rate_limit()
-            url = f"{self.base_url}/v6/quote"
+            url = f"{self.base_url}/quote"
             params = {
                 "inputMint": input_mint,
                 "outputMint": output_mint,
                 "amount": amount,
-                "slippageBps": 50,
-                "onlyDirectRoutes": True,
+                "slippageBps": int(os.getenv("DEFAULT_SLIPPAGE_BPS", "250")),
+                "onlyDirectRoutes": False,
                 "asLegacyTransaction": True,
-                "wrapUnwrapSOL": True
+                "wrapUnwrapSOL": True,
+                "useSharedAccounts": use_shared_accounts,
+                "platformFeeBps": 0
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             response = requests.get(url, params=params)

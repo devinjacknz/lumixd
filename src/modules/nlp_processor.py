@@ -3,6 +3,7 @@ NLP Processor Module
 Handles trading instruction parsing and parameter validation using DeepSeek model
 """
 
+import os
 from typing import Dict, Optional, Tuple
 from termcolor import cprint
 from src.models.deepseek_model import DeepSeekModel
@@ -106,32 +107,51 @@ class NLPProcessor:
                     "en": "Token symbol or address is required",
                     "zh": "代币符号或地址为必填项"
                 })
-            if "amount" not in params:
-                raise ValueError({
-                    "en": "Trading amount is required",
-                    "zh": "交易数量为必填项"
-                })
-                
             # Normalize action
             params["action"] = params["action"].lower()
             if params["action"] not in ["buy", "sell"]:
                 raise ValueError(f"Invalid action: {params['action']}")
                 
-            # Resolve token address
-            if "token_symbol" in params:
+            # Check for either amount or position_size
+            if "amount" not in params and "position_size" not in params:
+                raise ValueError({
+                    "en": "Either trading amount or position size is required",
+                    "zh": "交易数量或仓位大小为必填项"
+                })
+                
+            # Resolve token address or use directly
+            if "token_address" in params:
+                # If token_address is already provided, validate format
+                if params["token_address"] == "So11111111111111111111111111111111111111112":
+                    pass  # Valid SOL token address
+                elif len(params["token_address"]) == 44:  # Solana address length
+                    pass  # Valid token address
+                else:
+                    raise ValueError(f"Invalid token address format: {params['token_address']}")
+            elif "token_symbol" in params:
                 symbol = params["token_symbol"].upper()
                 if symbol in self.tokens:
                     params["token_address"] = self.tokens[symbol]
                 else:
-                    raise ValueError(f"Unknown token symbol: {symbol}")
-                    
-            # Normalize amount
-            try:
-                params["amount"] = float(params["amount"])
-                if params["amount"] <= 0:
-                    raise ValueError("Amount must be positive")
-            except (TypeError, ValueError):
-                raise ValueError(f"Invalid amount: {params['amount']}")
+                    # For direct token addresses as symbols
+                    if len(symbol) == 44:  # Solana address length
+                        params["token_address"] = symbol
+                    else:
+                        raise ValueError(f"Unknown token symbol: {symbol}")
+            
+            # Normalize amount if required
+            if "amount" in params:
+                try:
+                    params["amount"] = float(params["amount"])
+                    if params["amount"] <= 0:
+                        raise ValueError("Amount must be positive")
+                except (TypeError, ValueError):
+                    raise ValueError(f"Invalid amount: {params['amount']}")
+            elif "position_size" in params:
+                # For position-based orders, amount is optional
+                pass
+            else:
+                raise ValueError("Either amount or position_size is required")
                 
             # Normalize slippage
             if "slippage" in params:
@@ -161,10 +181,79 @@ class NLPProcessor:
             # Parse the JSON response directly
             try:
                 import json
+                import re
+                
+                # Handle immediate full position buy
+                if "现价买全仓" in original_text:
+                    # Extract token address from instruction
+                    token_address = original_text.split("现价买全仓")[0].strip()
+                    print(f"🔍 Attempting to parse token address: {token_address}")
+                    
+                    # Validate token address format
+                    if token_address and len(token_address) == 44 and all(c in '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz' for c in token_address):
+                        print(f"✅ Valid token address found: {token_address}")
+                    else:
+                        token_address = "So11111111111111111111111111111111111111112"  # Default to SOL
+                        print(f"⚠️ Using default SOL token address: {token_address}")
+                        
+                    return {
+                        "action": "buy",
+                        "token_address": token_address,
+                        "token_symbol": "SOL",  # Default to SOL for display
+                        "position_size": 1.0,  # Full position
+                        "amount": float(os.getenv("MAX_TRADE_SIZE_SOL", "10.0")),
+                        "slippage": float(os.getenv("DEFAULT_SLIPPAGE_BPS", "250")) / 100
+                    }
+                    
+                # Handle timed half position sell
+                elif "分钟后卖出半仓" in original_text:
+                    delay_match = re.search(r'(\d+)分钟后', original_text)
+                    delay_minutes = int(delay_match.group(1)) if delay_match else 10
+                    print(f"✅ Parsed delay minutes: {delay_minutes}")
+                    params = {
+                        "action": "sell",
+                        "token_address": "So11111111111111111111111111111111111111112",  # Default to SOL
+                        "token_symbol": "SOL",
+                        "position_size": 0.5,  # Half position
+                        "delay_minutes": delay_minutes,
+                        "amount": float(os.getenv("MAX_TRADE_SIZE_SOL", "10.0")) * 0.5,  # Half of max trade size
+                        "slippage": float(os.getenv("DEFAULT_SLIPPAGE_BPS", "250")) / 100,
+                        "urgency": "medium"
+                    }
+                    print(f"✅ Generated parameters for timed sell: {json.dumps(params, indent=2)}")
+                    return params
+                    
+                # Handle conditional order
+                elif "分钟后，如果相对买入价" in original_text:
+                    delay_match = re.search(r'(\d+)分钟后', original_text)
+                    delay_minutes = int(delay_match.group(1)) if delay_match else 20
+                    
+                    # Determine condition and action
+                    if "上涨" in original_text:
+                        condition = {"type": "above_entry"}
+                        action = "sell"
+                        position_size = 1.0  # Full remaining position
+                        amount = float(os.getenv("MAX_TRADE_SIZE_SOL", "10.0"))
+                    else:
+                        condition = {"type": "below_entry"}
+                        action = "buy"
+                        position_size = 0.1  # 10u worth
+                        amount = 10.0  # 10u in SOL
+                        
+                    return {
+                        "action": action,
+                        "token_address": "So11111111111111111111111111111111111111112",  # Default to SOL
+                        "token_symbol": "SOL",
+                        "position_size": position_size,
+                        "amount": amount,
+                        "delay_minutes": delay_minutes,
+                        "condition": condition,
+                        "slippage": float(os.getenv("DEFAULT_SLIPPAGE_BPS", "250")) / 100
+                    }
+                    
                 # Handle token info query
-                if "查看" in original_text and "代币" in original_text:
+                elif "查看" in original_text and "代币" in original_text:
                     # Extract token symbol from instruction
-                    import re
                     token_match = re.search(r'查看\s+(\w+)\s+代币', original_text)
                     token_symbol = token_match.group(1) if token_match else "SOL"
                     
@@ -177,6 +266,7 @@ class NLPProcessor:
                     }
                     print(f"✅ Token info query: {token_info}")
                     return token_info
+                    
                 # Handle market analysis
                 elif "分析" in original_text and "代币" in original_text:
                     analysis = {

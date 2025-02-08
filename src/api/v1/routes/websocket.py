@@ -11,6 +11,8 @@ from src.modules.nlp_processor import NLPProcessor
 from src.data.jupiter_client import JupiterClient
 from src.models.deepseek_model import DeepSeekModel
 from src.modules.token_info import TokenInfoModule
+from src.services.order_manager import OrderManager
+from src.data.price_tracker import PriceTracker
 from solders.pubkey import Pubkey
 
 router = APIRouter()
@@ -22,6 +24,14 @@ class ConnectionManager:
         self.nlp_processor = NLPProcessor()
         self.jupiter_client = JupiterClient()
         self.token_info = TokenInfoModule()
+        self.order_manager = OrderManager()
+        self.price_tracker = PriceTracker()
+        
+    async def initialize(self):
+        """Initialize async components"""
+        await self.order_manager.start()
+        await self.price_tracker.start()
+        print("✅ Initialized WebSocket manager")
         
     async def connect(self, websocket: WebSocket, client_id: str):
         await websocket.accept()
@@ -41,15 +51,16 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-@router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, client_id: str | None = None):
+@router.websocket("/api/v1/ws")
+async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time trading and market data"""
-    if not client_id:
-        client_id = str(id(websocket))
-    
-    await manager.connect(websocket, client_id)
+    client_id = str(id(websocket))
+    print(f"🔌 New WebSocket connection: {client_id}")
     
     try:
+        await manager.connect(websocket, client_id)
+        print(f"✅ Client connected: {client_id}")
+        
         while True:
             try:
                 data = await websocket.receive_json()
@@ -103,97 +114,134 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str | None = None)
                         })
                     
                     # Execute trade if parsing successful
-                    if "error" not in parsed:
-                        params = parsed["parsed_params"]
-                        # Get quote using Jupiter API
-                        loop = asyncio.get_event_loop()
-                        quote = await loop.run_in_executor(
-                            None,
-                            lambda: manager.jupiter_client.get_quote(
-                                input_mint=params["token_address"],
-                                output_mint=manager.jupiter_client.sol_token,
-                                amount=str(int(params["amount"] * 1e9))  # Convert to lamports
-                            )
-                        )
+                    if "error" not in parsed and parsed.get("parsed_params"):
+                        params = parsed.get("parsed_params", {})
+                        instance_id = "default"  # Use default instance for now
+                        print(f"✅ Parsed parameters: {params}")  # Debug log
                         
-                        if quote:
-                            # Execute swap with quote
-                            private_key = os.getenv("SOLANA_PRIVATE_KEY")
-                            if not private_key:
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "message": "Wallet private key not configured"
-                                })
-                                continue
-                                
-                            try:
-                                # Create wallet pubkey from private key
-                                wallet_pubkey = str(Pubkey.from_bytes(bytes.fromhex(private_key)))
-                                
-                                # Execute swap with risk control checks
-                                from src.config.settings import TRADING_CONFIG
-                                if params.get("slippage", 2.5) > TRADING_CONFIG["risk_parameters"]["max_slippage_bps"] / 100:
-                                    await websocket.send_json({
-                                        "type": "error",
-                                        "message": {
-                                            "en": "Slippage exceeds maximum allowed",
-                                            "zh": "滑点超过最大允许值"
-                                        }
-                                    })
-                                    continue
-                                
-                                # Execute swap through Jupiter
-                                loop = asyncio.get_event_loop()
-                                # Ensure quote is not None before executing swap
-                                if not quote:
-                                    await websocket.send_json({
-                                        "type": "error",
-                                        "message": {
-                                            "en": "Failed to get quote from Jupiter",
-                                            "zh": "无法从Jupiter获取报价"
-                                        }
-                                    })
-                                    continue
-                                    
-                                # Cast quote to Dict[str, Any] since we've already checked it's not None
-                                from typing import cast, Dict, Any
-                                quote_dict = cast(Dict[str, Any], quote)
-                                result = await loop.run_in_executor(
-                                    None,
-                                    lambda: manager.jupiter_client.execute_swap(
-                                        quote_response=quote_dict,
-                                        wallet_pubkey=wallet_pubkey
+                        # Validate required parameters
+                        if not params.get("token_address"):
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": {
+                                    "en": "Token address is required",
+                                    "zh": "代币地址为必填项"
+                                }
+                            })
+                            continue
+                        
+                        try:
+                            # Handle immediate full position buy
+                            if "现价买全仓" in instruction:
+                                try:
+                                    order_id = await manager.order_manager.create_immediate_order(
+                                        instance_id=instance_id,
+                                        token=params["token_address"],
+                                        position_size=1.0,  # Full position
+                                        amount=float(os.getenv("MAX_TRADE_SIZE_SOL", "10.0"))
                                     )
-                                )
+                                    await websocket.send_json({
+                                        "type": "order_created",
+                                        "order_id": order_id,
+                                        "message": {
+                                            "en": "Full position buy order created",
+                                            "zh": "全仓买入订单已创建"
+                                        },
+                                        "params": {
+                                            "token_address": params["token_address"],
+                                            "position_size": 1.0,
+                                            "amount": float(os.getenv("MAX_TRADE_SIZE_SOL", "10.0"))
+                                        }
+                                    })
+                                except Exception as e:
+                                    print(f"❌ Error creating immediate order: {str(e)}")
+                                    await websocket.send_json({
+                                        "type": "error",
+                                        "message": {
+                                            "en": f"Failed to create order: {str(e)}",
+                                            "zh": f"创建订单失败：{str(e)}"
+                                        }
+                                    })
                                 
-                                # Send multilingual response
-                                if result:
-                                    await websocket.send_json({
-                                        "type": "trade_executed",
-                                        "status": "success",
-                                        "transaction_hash": result,
-                                        "message": {
-                                            "en": "Trade executed successfully",
-                                            "zh": "交易执行成功"
-                                        }
-                                    })
-                                else:
-                                    await websocket.send_json({
-                                        "type": "trade_executed",
-                                        "status": "failed",
-                                        "message": {
-                                            "en": "Trade execution failed",
-                                            "zh": "交易执行失败"
-                                        }
-                                    })
-                            except Exception as e:
+                            # Handle timed half position sell
+                            elif "分钟后卖出半仓" in instruction:
+                                delay_minutes = int(instruction.split("分钟")[0])
+                                order_id = await manager.order_manager.create_timed_order(
+                                    instance_id=instance_id,
+                                    token=params["token_address"],
+                                    direction="sell",
+                                    position_size=0.5,  # Half position
+                                    delay_minutes=delay_minutes
+                                )
                                 await websocket.send_json({
-                                    "type": "error",
+                                    "type": "order_created",
+                                    "order_id": order_id,
                                     "message": {
-                                        "en": f"Failed to execute trade: {str(e)}",
-                                        "zh": f"交易执行失败：{str(e)}"
+                                        "en": f"Timed sell order created (execute in {delay_minutes} minutes)",
+                                        "zh": f"定时卖出订单已创建（{delay_minutes}分钟后执行）"
+                                    },
+                                    "params": {
+                                        "direction": "sell",
+                                        "position_size": 0.5,
+                                        "delay_minutes": delay_minutes,
+                                        "token_address": params.get("token_address", "So11111111111111111111111111111111111111112")
                                     }
                                 })
+                                
+                            # Handle conditional order
+                            elif "分钟后，如果相对买入价" in instruction:
+                                delay_minutes = int(instruction.split("分钟")[0])
+                                is_up = "上涨" in instruction
+                                
+                                # Get current price as entry price
+                                quote = await asyncio.get_event_loop().run_in_executor(
+                                    None,
+                                    lambda: manager.jupiter_client.get_quote(
+                                        input_mint=manager.jupiter_client.sol_token,
+                                        output_mint=params["token_address"],
+                                        amount="1000000000"  # 1 SOL
+                                    )
+                                )
+                                if not quote:
+                                    raise ValueError("Failed to get entry price")
+                                    
+                                entry_price = float(quote.get("outAmount", 0)) / 1e9
+                                
+                                order_id = await manager.order_manager.create_conditional_order(
+                                    instance_id=instance_id,
+                                    token=params["token_address"],
+                                    direction="sell" if is_up else "buy",
+                                    position_size=1.0 if is_up else 0.1,  # Full remaining position or 10u
+                                    delay_minutes=delay_minutes,
+                                    condition={"type": "above_entry" if is_up else "below_entry"},
+                                    entry_price=entry_price
+                                )
+                                await websocket.send_json({
+                                    "type": "order_created",
+                                    "order_id": order_id,
+                                    "message": {
+                                        "en": f"Conditional order created (execute in {delay_minutes} minutes)",
+                                        "zh": f"条件单已创建（{delay_minutes}分钟后检查条件）"
+                                    },
+                                    "params": {
+                                        "direction": "sell" if is_up else "buy",
+                                        "position_size": 1.0 if is_up else 0.1,
+                                        "delay_minutes": delay_minutes,
+                                        "token_address": params["token_address"],
+                                        "condition": "above_entry" if is_up else "below_entry",
+                                        "entry_price": entry_price
+                                    },
+                                    "type": "conditional_order"
+                                })
+                                
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": {
+                                    "en": f"Failed to create order: {str(e)}",
+                                    "zh": f"创建订单失败：{str(e)}"
+                                }
+                            })
                         
                 elif message_type == "ping":
                     await websocket.send_json({"type": "pong"})

@@ -60,7 +60,7 @@ from src.nice_funcs import (
 load_dotenv()
 
 class TradingAgent:
-    def __init__(self, instance_id: str, model_type="deepseek", model_name="deepseek-r1:1.5b"):
+    def __init__(self, instance_id: str, model_type: str = "deepseek", model_name: str = "deepseek-r1:1.5b"):
         self.instance_id = instance_id
         self.model_type = model_type
         self.model_name = model_name
@@ -77,6 +77,15 @@ class TradingAgent:
         self.active = True
         self.total_trades = 0
         self.successful_trades = 0
+        
+        # Initialize trading components
+        self.jupiter_client = JupiterClient()
+        self.chainstack_client = ChainStackClient()
+        self.sol_token = "So11111111111111111111111111111111111111112"
+        
+        # Initialize position tracking
+        self.chainstack_client = ChainStackClient()
+        self.positions: Dict[str, float] = {}
         
     def _parse_analysis(self, response: str) -> dict:
         """Parse AI model response into structured data"""
@@ -131,6 +140,105 @@ class TradingAgent:
         """Calculate composite signal strength using multi-factor model"""
         return (0.6 * strategy_signal + 0.3 * sentiment_score + 0.1 * (1 - volatility))
         
+    async def get_position_size(self, token: str) -> float:
+        """Get current position size in tokens"""
+        try:
+            wallet_address = os.getenv("WALLET_ADDRESS")
+            if not wallet_address:
+                return 0.0
+                
+            # Get token balance from positions cache
+            return self.positions.get(token, 0.0)
+        except Exception as e:
+            cprint(f"❌ Error getting position size: {str(e)}", "red")
+            return 0.0
+            
+    async def execute_partial_position(self, token: str, percentage: float) -> Optional[str]:
+        """Execute trade for percentage of position"""
+        try:
+            current_size = await self.get_position_size(token)
+            if current_size <= 0:
+                cprint(f"❌ No position found for token {token}", "red")
+                return None
+                
+            # Calculate trade size
+            trade_size = current_size * percentage
+            if trade_size < self.min_trade_size:
+                cprint(f"❌ Trade size {trade_size} below minimum {self.min_trade_size}", "red")
+                return None
+                
+            # Execute trade
+            trade_request = {
+                'token': token,
+                'amount': trade_size,
+                'slippage_bps': self.slippage,
+                'direction': 'sell'  # Partial positions are for selling
+            }
+            signature = self.execute_trade(trade_request)
+            
+            if signature:
+                # Update position tracking
+                self.positions[token] = current_size - trade_size
+                if self.positions[token] <= 0:
+                    del self.positions[token]
+                    
+            return signature
+        except Exception as e:
+            cprint(f"❌ Error executing partial position: {str(e)}", "red")
+            return None
+            
+            if signature:
+                # Update position tracking
+                self.positions[token] = current_size - trade_size
+                if self.positions[token] <= 0:
+                    del self.positions[token]
+                    
+            return signature
+            
+    async def validate_position_size(self, token: str, size: float) -> bool:
+        """Validate if position size is within limits"""
+        try:
+            # Get total portfolio value
+            values = await self.get_position_values()
+            total_value = sum(values.values())
+            
+            # Calculate new position value
+            token_price = await self.get_token_price(token)
+            new_position_value = size * token_price
+            
+            # Check against max position size
+            if total_value > 0 and new_position_value / total_value > self.max_position_size:
+                cprint(f"❌ Position size {new_position_value/total_value:.2%} exceeds max {self.max_position_size:.2%}", "red")
+                return False
+                
+            return True
+        except Exception as e:
+            cprint(f"❌ Error validating position size: {str(e)}", "red")
+            return False
+            
+    async def get_position_values(self) -> Dict[str, float]:
+        """Get current position values in SOL"""
+        values = {}
+        for token, size in self.positions.items():
+            price = await self.get_token_price(token)
+            values[token] = size * price
+        return values
+            
+    async def get_token_price(self, token: str) -> float:
+        """Get token price in SOL"""
+        try:
+            quote = self.jupiter_client.get_quote(
+                input_mint=token,
+                output_mint=self.jupiter_client.sol_token,
+                amount="1000000000"  # 1 unit in smallest denomination
+            )
+            if not quote:
+                return 0.0
+            return float(quote.get('outAmount', 0)) / 1e9
+        except Exception as e:
+            cprint(f"❌ Error getting token price: {str(e)}", "red")
+            return 0.0
+        
     def calculate_position_size(self, token_data: dict) -> float:
         """Calculate dynamic position size based on ATR and portfolio value"""
         try:
@@ -153,7 +261,7 @@ class TradingAgent:
             print(f"Error calculating position size: {e}")
             return 0
             
-    def analyze_market_data(self, token_data: dict) -> dict:
+    async def analyze_market_data(self, token_data: dict) -> dict:
         """Analyze market data using Snap strategy and DeepSeek model"""
         if not token_data or not isinstance(token_data, dict):
             return {
@@ -165,7 +273,16 @@ class TradingAgent:
             
         try:
             # Get Snap strategy signals
-            self.snap_strategy.set_token(token_data.get('symbol'))
+            symbol = token_data.get('symbol', '')
+            if not symbol:
+                return {
+                    'action': 'NEUTRAL',
+                    'confidence': 0.0,
+                    'reason': 'Missing token symbol',
+                    'metadata': {}
+                }
+                
+            self.snap_strategy.set_token(symbol)
             strategy_signals = self.snap_strategy.generate_signals()
             
             # Get DeepSeek analysis
@@ -177,7 +294,7 @@ class TradingAgent:
                     'metadata': {}
                 }
                 
-            model_analysis = self.model.analyze_trading_opportunity(token_data)
+            model_analysis = await self.model.analyze_trading_opportunity(token_data)
             if not model_analysis:
                 return {
                     'action': 'NEUTRAL',
@@ -219,29 +336,28 @@ class TradingAgent:
                 'metadata': {}
             }
             
-    def check_balances(self) -> tuple[bool, str]:
+    async def check_balances(self) -> tuple[bool, str]:
         """Check if wallet has sufficient balances"""
         try:
             # Check SOL balance
-            client = ChainStackClient()
             wallet_address = os.getenv("WALLET_ADDRESS")
             if not wallet_address:
                 return False, "Wallet address not set"
-            sol_balance = client.get_wallet_balance(wallet_address)
-            if not sol_balance or sol_balance < MIN_SOL_BALANCE:
+                
+            sol_balance = await self.chainstack_client.get_wallet_balance(wallet_address)
+            if not sol_balance or float(sol_balance) < MIN_SOL_BALANCE:
                 return False, f"Insufficient SOL balance: {sol_balance}"
                 
             if USE_SOL_FOR_TRADING:
-                if sol_balance < MIN_TRADE_SIZE_SOL + MIN_SOL_BALANCE:
+                if float(sol_balance) < MIN_TRADE_SIZE_SOL + MIN_SOL_BALANCE:
                     return False, f"Insufficient SOL for trading: {sol_balance}"
                 return True, "Sufficient SOL balance"
                 
             # Check USDC balance if not using SOL
-            usdc_balance = float(client.get_token_balance(USDC_ADDRESS) or 0)
-            if usdc_balance < MIN_USDC_BALANCE:
+            usdc_balance = await self.chainstack_client.get_token_balance(USDC_ADDRESS, wallet_address)
+            if not usdc_balance or float(usdc_balance) < MIN_USDC_BALANCE:
                 if CREATE_ATA_IF_MISSING:
-                    jupiter = JupiterClient()
-                    if jupiter.create_token_account(USDC_ADDRESS, os.getenv("WALLET_ADDRESS")):
+                    if await self.jupiter_client.create_token_account(USDC_ADDRESS, wallet_address):
                         return True, "Created USDC token account"
                 return False, f"Insufficient USDC balance: {usdc_balance}"
                 
@@ -249,21 +365,81 @@ class TradingAgent:
         except Exception as e:
             return False, f"Error checking balances: {str(e)}"
 
-    def execute_trade(self, trade_request: Dict[str, Any]) -> Optional[str]:
+    async def execute_trade(self, trade_request: Dict[str, Any]) -> Optional[str]:
         """Execute trade based on trade request"""
         if not self.active:
             cprint(f"❌ Instance {self.instance_id} is not active", "red")
             return None
+            
         try:
-            if not trade_request.get('output_token'):
+            wallet_address = os.getenv("WALLET_ADDRESS")
+            if not wallet_address:
+                cprint("❌ Trade failed: No wallet address configured", "red")
+                return None
+                
+            if not trade_request.get('token'):
                 cprint("❌ Trade failed: No token specified", "red")
                 return None
                 
             # Check balances first
-            balances_ok, reason = self.check_balances()
+            balances_ok, reason = await self.check_balances()
             if not balances_ok:
                 cprint(f"❌ Trade failed: {reason}", "red")
                 return None
+                
+            # Get quote with optimized parameters
+            loop = asyncio.get_event_loop()
+            quote = await loop.run_in_executor(
+                None,
+                lambda: self.jupiter_client.get_quote(
+                    input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
+                    output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
+                    amount=str(int(float(trade_request['amount']) * 1e9))
+                )
+            )
+            if not quote:
+                cprint("❌ Failed to get quote", "red")
+                return None
+                
+            # Execute swap
+            signature = await loop.run_in_executor(
+                None,
+                lambda: self.jupiter_client.execute_swap(
+                    quote_response=quote,
+                    wallet_pubkey=wallet_address,
+                    use_shared_accounts=True
+                )
+            )
+            
+            if signature:
+                # Update metrics
+                metrics = {
+                    'instance_id': self.instance_id,
+                    'token': trade_request['token'],
+                    'direction': trade_request.get('direction', 'buy'),
+                    'amount': float(trade_request['amount']),
+                    'execution_time': datetime.now().timestamp(),
+                    'slippage': trade_request.get('slippage_bps', 250) / 100,
+                    'success': True
+                }
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.performance_monitor.log_trade_metrics(metrics)
+                )
+                self.total_trades += 1
+                self.successful_trades += 1
+                self.last_trade_time = datetime.now()
+                
+                # Update position tracking for buys
+                if trade_request.get('direction') == 'buy':
+                    current = self.positions.get(trade_request['token'], 0.0)
+                    self.positions[trade_request['token']] = current + float(trade_request['amount'])
+                
+            return signature
+            
+        except Exception as e:
+            cprint(f"❌ Error executing trade: {str(e)}", "red")
+            return None
                 
             # Get current positions and calculate total position value
             positions_df = fetch_wallet_holdings_og(os.getenv("WALLET_ADDRESS", ""))
@@ -283,23 +459,22 @@ class TradingAgent:
             start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
             
             # Get quote with optimized parameters
-            quote = jupiter.get_quote(
-                trade_request.get('input_token'),
-                trade_request.get('output_token'),
-                str(int(trade_amount * 1e9)),
-                use_shared_accounts=trade_request.get('use_shared_accounts', True),
-                force_simpler_route=trade_request.get('force_simpler_route', True)
+            quote = self.jupiter_client.get_quote(
+                input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
+                output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
+                amount=str(int(float(trade_request['amount']) * 1e9))
             )
             if not quote:
                 cprint("❌ Failed to get quote", "red")
                 return None
                 
             # Execute swap
-            signature = jupiter.execute_swap(
-                quote,
-                os.getenv("WALLET_ADDRESS"),
-                use_shared_accounts=trade_request.get('use_shared_accounts', True)
-            )
+            if wallet_address:
+                signature = self.jupiter_client.execute_swap(
+                    quote_response=quote,
+                    wallet_pubkey=wallet_address,
+                    use_shared_accounts=True
+                )
                 
             if signature:
                 end_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
@@ -344,31 +519,45 @@ class TradingAgent:
             print(f"Error in circuit breakers: {e}")
             return False, f"Circuit breaker error: {str(e)}"
             
-    def _check_risk_limits(self) -> bool:
+    async def _check_risk_limits(self) -> bool:
         """Check risk management limits with circuit breakers"""
         try:
-            positions = fetch_wallet_holdings_og(os.getenv("WALLET_ADDRESS", ""))
-            if positions.empty:
+            # Get current positions from chainstack
+            wallet_address = os.getenv("WALLET_ADDRESS")
+            if not wallet_address:
                 return True
                 
-            total_value = positions['USD Value'].sum()
-            
+            total_value = 0
+            for token, amount in self.positions.items():
+                price = await self.get_token_price(token)
+                total_value += amount * price
+                
+            if total_value == 0:
+                return True
+                
             # Prepare trade data
+            market_volatility = await self.calculate_volatility("SOL")  # Use SOL as market indicator
             trade_data = {
                 'portfolio_value': total_value,
-                'portfolio_volatility': self._calculate_portfolio_volatility(positions),
-                'market_volatility': self.calculate_volatility("SOL"),  # Use SOL as market indicator
+                'portfolio_volatility': await self._calculate_portfolio_volatility(),
+                'market_volatility': market_volatility
             }
             
-            # Check individual position sizes
-            for _, pos in positions.iterrows():
-                size_percentage = (pos['USD Value'] / total_value) * 100
-                trade_data['unrealized_loss_percentage'] = -pos.get('unrealized_pnl_percentage', 0)
+            # Check position sizes
+            for token, amount in self.positions.items():
+                price = await self.get_token_price(token)
+                position_value = amount * price
+                size_percentage = (position_value / total_value) * 100
+                
+                # Get entry price from order history
+                entry_price = self.positions.get(f"{token}_entry_price", price)
+                unrealized_pnl = (price - entry_price) / entry_price * 100
+                trade_data['unrealized_loss_percentage'] = -unrealized_pnl
                 
                 # Check circuit breakers
                 is_safe, reason = self.check_circuit_breakers(trade_data)
                 if not is_safe:
-                    print(f"🚨 Circuit breaker: {reason}")
+                    cprint(f"🚨 Circuit breaker: {reason}", "yellow")
                     return False
                     
             return True
@@ -377,34 +566,50 @@ class TradingAgent:
             print(f"Error checking risk limits: {e}")
             return False
             
-    def _calculate_portfolio_volatility(self, positions: pd.DataFrame) -> float:
+    async def _calculate_portfolio_volatility(self) -> float:
         """Calculate portfolio volatility"""
         try:
-            # Simple volatility calculation based on position values
-            if positions.empty:
-                return 0
+            # Calculate volatility based on position values
+            if not self.positions:
+                return 0.0
                 
-            values = positions['USD Value']
+            total_volatility = 0.0
+            total_value = 0.0
+            
+            for token, amount in self.positions.items():
+                price = await self.get_token_price(token)
+                value = amount * price
+                volatility = await self.calculate_volatility(token)
+                total_volatility += value * volatility
+                total_value += value
+                
+            return total_volatility / total_value if total_value > 0 else 0.0
             return float(values.std() / values.mean()) if values.mean() > 0 else 0
             
         except Exception as e:
             print(f"Error calculating portfolio volatility: {e}")
             return 1.0  # Return high volatility on error
 
-    def get_token_data(self, token: str) -> dict:
+    async def get_token_data(self, token: str) -> dict:
         """Get token market data"""
         try:
-            from src.data.chainstack_client import ChainStackClient
-            client = ChainStackClient()
-            return client.get_token_data(token)
+            token_data = await self.chainstack_client.get_token_data(token)
+            if not token_data:
+                return {}
+            
+            # Ensure symbol is available for snap strategy
+            if 'symbol' not in token_data:
+                token_data['symbol'] = token
+                
+            return token_data
         except Exception as e:
-            print(f"Error getting token data: {e}")
+            cprint(f"❌ Error getting token data: {str(e)}", "red")
             return {}
 
-    def calculate_volatility(self, token: str) -> float:
+    async def calculate_volatility(self, token: str) -> float:
         """Calculate token volatility using ATR"""
         try:
-            token_data = self.get_token_data(token)
+            token_data = await self.get_token_data(token)
             if not token_data:
                 return 0.2  # Default 20% volatility
                 
@@ -419,13 +624,13 @@ class TradingAgent:
             return float(atr / current_price if current_price > 0 else 0.2)
             
         except Exception as e:
-            print(f"Error calculating volatility: {e}")
+            cprint(f"❌ Error calculating volatility: {str(e)}", "red")
             return 0.2
 
-    def generate_trading_signal(self, token: str) -> dict:
+    async def generate_trading_signal(self, token: str) -> dict:
         """Generate trading signal using DeepSeek model and Snap strategy"""
         try:
-            token_data = self.get_token_data(token)
+            token_data = await self.get_token_data(token)
             if not token_data:
                 return {
                     'signal': 0.0,
@@ -434,12 +639,20 @@ class TradingAgent:
                     'metadata': {}
                 }
                 
-            analysis = self.analyze_market_data(token_data)
+            analysis = await self.analyze_market_data(token_data)
+            if not analysis:
+                return {
+                    'signal': 0.0,
+                    'direction': 'NEUTRAL',
+                    'confidence': 0.0,
+                    'metadata': {}
+                }
+                
             return {
-                'signal': analysis['confidence'],
-                'direction': analysis['action'],
-                'confidence': analysis['confidence'],
-                'metadata': analysis['metadata']
+                'signal': analysis.get('confidence', 0.0),
+                'direction': analysis.get('action', 'NEUTRAL'),
+                'confidence': analysis.get('confidence', 0.0),
+                'metadata': analysis.get('metadata', {})
             }
         except Exception as e:
             cprint(f"❌ Error generating trading signal: {str(e)}", "red")
@@ -483,7 +696,7 @@ class TradingAgent:
             }
         }
 
-    def run(self, instance_config: Optional[Dict[str, Any]] = None):
+    async def run(self, instance_config: Optional[Dict[str, Any]] = None):
         """Main processing loop with instance-specific configuration"""
         if not instance_config:
             instance_config = {}
@@ -498,12 +711,12 @@ class TradingAgent:
         cprint(f"💰 Trade size: {trade_size} SOL", "cyan")
         cprint(f"🎯 Focus tokens: {', '.join(focus_tokens)}", "cyan")
         
-        last_trade_time = datetime.now() - timedelta(minutes=trading_interval)
+        self.last_trade_time = datetime.now() - timedelta(minutes=trading_interval)
         
         try:
             while True:
                 # Check system health
-                self.system_monitor.check_system_health()
+                await self.system_monitor.check_system_health()
                 
                 for token in instance_config.get('tokens', FOCUS_TOKENS):
                     try:
@@ -511,31 +724,35 @@ class TradingAgent:
                             cprint(f"⏹️ Instance {self.instance_id} stopped", "yellow")
                             return
                             
+                        # Check risk limits before trading
+                        risk_ok = await self._check_risk_limits()
+                        if not risk_ok:
+                            cprint("⚠️ Risk limits exceeded, skipping trades", "yellow")
+                            continue
+                            
                         # Get market data
-                        token_data = self.get_token_data(token)
+                        token_data = await self.get_token_data(token)
                         if not token_data:
                             continue
                             
                         # Analyze with Snap strategy and DeepSeek
-                        analysis = self.analyze_market_data(token_data)
+                        analysis = await self.analyze_market_data(token_data)
                         
                         # Execute trade if signal is strong
-                        if analysis['confidence'] > 0.7 and analysis['action'] != 'NEUTRAL':
+                        if analysis and analysis.get('confidence', 0) > 0.7 and analysis.get('action') != 'NEUTRAL':
                             trade_size = instance_config.get('amount_sol', MIN_TRADE_SIZE_SOL)
                             if analysis['metadata'].get('params'):
                                 params = analysis['metadata']['params']
                                 trade_size *= min(params.get('size', 1.0), instance_config.get('max_position_multiplier', 1.0))
                                 
                             start_time = time.time()
-                            trade_request = TradeRequest(
-                                input_token="So11111111111111111111111111111111111111112",
-                                output_token=token,
-                                amount_sol=trade_size,
-                                slippage_bps=self.slippage,
-                                use_shared_accounts=True,
-                                force_simpler_route=True
-                            )
-                            success = self.execute_trade(trade_request)
+                            trade_request = {
+                                'token': token,
+                                'amount': trade_size,
+                                'direction': 'buy' if analysis['action'] == 'BUY' else 'sell',
+                                'slippage_bps': self.slippage
+                            }
+                            signature = self.execute_trade(trade_request)
                             execution_time = int((time.time() - start_time) * 1000)
                             
                             self.performance_monitor.log_trade_metrics({
@@ -543,20 +760,27 @@ class TradingAgent:
                                 'direction': analysis['action'],
                                 'amount': trade_size,
                                 'execution_time': execution_time,
-                                'slippage': self.slippage * 100,
+                                'slippage': self.slippage / 100,
                                 'gas_cost': 0.000005,
-                                'success': success
+                                'success': bool(signature)
                             })
                             
-                            if success:
+                            if signature:
                                 cprint(f"✅ Trade executed for {token}", "green")
                                 cprint(f"💡 Reason: {analysis['reason']}", "cyan")
                                 
-                            self.system_monitor.monitor_trading_interval(token, last_trade_time)
-                            last_trade_time = datetime.now()
-                            
-                            # Print trade summary
-                            self.performance_monitor.print_summary()
+                                # Update last trade time
+                                self.last_trade_time = datetime.now()
+                                
+                                # Monitor trading interval
+                                self.system_monitor.monitor_trading_interval(
+                                    token=token,
+                                    last_trade_time=self.last_trade_time,
+                                    instance_id=self.instance_id
+                                )
+                                
+                                # Print trade summary
+                                self.performance_monitor.print_summary()
                             
                     except Exception as e:
                         cprint(f"❌ Error trading {token}: {str(e)}", "red")
@@ -577,22 +801,24 @@ class TradingAgent:
                 # Print performance summary and check system health
                 if datetime.now().minute % 15 == 0:
                     self.performance_monitor.print_summary()
-                    health_metrics = self.system_monitor.check_system_health()
+                    health_metrics = await self.system_monitor.check_system_health()
                     if health_metrics.get('rpc_latency', 0) > 5000:  # 5s latency threshold
                         cprint("⚠️ High RPC latency detected!", "yellow")
                     if health_metrics.get('cpu_usage', 0) > 80:
                         cprint("⚠️ High CPU usage detected!", "yellow")
                         
-                time.sleep(TRADE_INTERVAL)
+                await asyncio.sleep(trading_interval * 60)  # Convert minutes to seconds
                 
         except KeyboardInterrupt:
-            print("\nTrading Agent shutting down...")
+            cprint("\n⏹️ Trading Agent shutting down...", "yellow")
             self.performance_monitor.print_summary()
             
         except Exception as e:
             cprint(f"❌ Critical error: {str(e)}", "red")
             self.performance_monitor.print_summary()
+            raise  # Re-raise to handle in caller
 
 if __name__ == "__main__":
-    agent = TradingAgent()
-    agent.run()
+    import asyncio
+    agent = TradingAgent(instance_id="test")
+    asyncio.run(agent.run())

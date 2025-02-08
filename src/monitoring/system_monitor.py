@@ -26,10 +26,16 @@ class SystemMonitor:
             'max_memory_usage': 80
         }
         
-    def check_system_health(self) -> Dict[str, Any]:
+    async def check_system_health(self) -> Dict[str, Any]:
         try:
             start_time = time.time()
-            rpc_latency = int((time.time() - start_time) * 1000)
+            
+            # Get RPC latency by making a test request
+            try:
+                await self.client.get_token_data("So11111111111111111111111111111111111111112")
+                rpc_latency = int((time.time() - start_time) * 1000)
+            except:
+                rpc_latency = -1
             
             metrics = {
                 'cpu_usage': psutil.cpu_percent(),
@@ -40,7 +46,10 @@ class SystemMonitor:
                 'status': 'healthy'
             }
             
-            self.performance_monitor.log_system_health(metrics)
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.performance_monitor.log_system_health(metrics)
+            )
             return metrics
         except Exception as e:
             self.performance_monitor.logger.error(f"System health check failed: {str(e)}")
@@ -49,13 +58,18 @@ class SystemMonitor:
                 'error': str(e)
             }
             
-    def check_instance_health(self, instance_id: str) -> Dict[str, Any]:
+    async def check_instance_health(self, instance_id: str) -> Dict[str, Any]:
         try:
             wallet_address = os.getenv("WALLET_ADDRESS")
             if not wallet_address:
                 return {'status': 'error', 'message': 'Wallet address not set'}
                 
-            wallet_balance = self.client.get_wallet_balance(wallet_address)
+            # Get wallet balance asynchronously
+            try:
+                wallet_balance = await self.client.get_wallet_balance(wallet_address)
+            except:
+                wallet_balance = 0
+                
             active_trades = self.active_trades.get(instance_id, [])
             
             metrics = {
@@ -77,34 +91,47 @@ class SystemMonitor:
                 'error': str(e)
             }
             
-    def monitor_trading_interval(self, instance_id: str, token: str, last_trade_time: datetime):
+    async def monitor_trading_interval(self, instance_id: str, token: str, last_trade_time: datetime):
         current_time = datetime.now()
         interval_seconds = int((current_time - last_trade_time).total_seconds())
-        self.performance_monitor.log_trading_interval(token, interval_seconds)
+        await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: self.performance_monitor.log_trading_interval(token, interval_seconds)
+        )
         
         if instance_id in self.instance_metrics:
             self.instance_metrics[instance_id]['last_trade_time'] = current_time
         self.last_check = current_time
         
-    def track_trade(self, instance_id: str, trade_data: Dict[str, Any]) -> None:
+    async def track_trade(self, instance_id: str, trade_data: Dict[str, Any]) -> None:
         if instance_id not in self.active_trades:
             self.active_trades[instance_id] = []
             
-        self.active_trades[instance_id].append({
+        trade_info = {
             'token': trade_data['token'],
             'direction': trade_data['direction'],
             'amount': trade_data['amount'],
             'start_time': datetime.now(),
             'status': 'active'
-        })
+        }
+        self.active_trades[instance_id].append(trade_info)
         
-    def complete_trade(self, instance_id: str, token: str, success: bool) -> None:
+    async def complete_trade(self, instance_id: str, token: str, success: bool) -> None:
         if instance_id in self.active_trades:
             trades = self.active_trades[instance_id]
             for trade in trades:
                 if trade['token'] == token and trade['status'] == 'active':
                     trade['status'] = 'completed' if success else 'failed'
                     trade['end_time'] = datetime.now()
+                    # Log trade completion
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: self.performance_monitor.log_trade_metrics({
+                            'token': token,
+                            'status': trade['status'],
+                            'execution_time': (trade['end_time'] - trade['start_time']).total_seconds() * 1000
+                        })
+                    )
                     break
                     
             # Clean up completed trades

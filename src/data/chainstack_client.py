@@ -100,6 +100,28 @@ class ChainStackClient:
             return float(largest_account["amount"]) / 1e9
         return 0.0
             
+    async def get_token_balance(self, token_address: str, wallet_address: str) -> float:
+        """Get token balance for a specific wallet"""
+        try:
+            response = await self._post_rpc(
+                "getTokenAccountsByOwner",
+                [
+                    wallet_address,
+                    {"mint": token_address},
+                    {"encoding": "jsonParsed"}
+                ]
+            )
+            if "result" in response and "value" in response["result"]:
+                for account in response["result"]["value"]:
+                    if "parsed" in account["account"]["data"]:
+                        data = account["account"]["data"]["parsed"]["info"]
+                        if data["mint"] == token_address:
+                            return float(data["tokenAmount"]["amount"]) / (10 ** data["tokenAmount"]["decimals"])
+            return 0.0
+        except Exception as e:
+            cprint(f"❌ Error getting token balance: {str(e)}", "red")
+            return 0.0
+            
     async def get_wallet_balance(self, wallet_address: str) -> float:
         try:
             if not wallet_address:
