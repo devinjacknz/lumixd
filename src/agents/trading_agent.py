@@ -361,26 +361,36 @@ class TradingAgent:
             if not wallet_address:
                 return False, "Wallet address not set"
                 
+            # Get real-time SOL balance from ChainStack
             sol_balance = await self.chainstack_client.get_wallet_balance(wallet_address)
-            if not sol_balance or float(sol_balance) < MIN_SOL_BALANCE:
-                return False, f"Insufficient SOL balance: {sol_balance}"
+            if not sol_balance:
+                return False, "Failed to get SOL balance"
                 
-            if USE_SOL_FOR_TRADING:
-                if float(sol_balance) < MIN_TRADE_SIZE_SOL + MIN_SOL_BALANCE:
-                    return False, f"Insufficient SOL for trading: {sol_balance}"
-                return True, "Sufficient SOL balance"
+            # Convert to float for comparison
+            balance_sol = float(sol_balance)
+            
+            # Check minimum SOL balance (0.02 SOL for trade + 0.01 SOL buffer)
+            min_required = 0.02 + 0.01  # Trade amount + buffer for gas
+            
+            if balance_sol < min_required:
+                return False, f"Insufficient SOL balance: {balance_sol:.4f} SOL (required: {min_required:.4f} SOL)"
                 
-            # Check USDC balance if not using SOL
-            usdc_balance = await self.chainstack_client.get_token_balance(USDC_ADDRESS, wallet_address)
-            if not usdc_balance or float(usdc_balance) < MIN_USDC_BALANCE:
-                if CREATE_ATA_IF_MISSING:
-                    if await self.jupiter_client.create_token_account(USDC_ADDRESS, wallet_address):
-                        return True, "Created USDC token account"
-                return False, f"Insufficient USDC balance: {usdc_balance}"
+            # Log balance check
+            cprint(f"✅ SOL balance check passed: {balance_sol:.4f} SOL", "green")
+            return True, f"Sufficient SOL balance: {balance_sol:.4f} SOL"
                 
-            return True, "Sufficient balances"
         except Exception as e:
-            return False, f"Error checking balances: {str(e)}"
+            error_msg = f"Error checking balances: {str(e)}"
+            cprint(f"❌ {error_msg}", "red")
+            await logging_service.log_error(
+                error_msg,
+                {
+                    'error': str(e),
+                    'wallet': '[REDACTED]'
+                },
+                'system'
+            )
+            return False, error_msg
 
     async def execute_trade(self, trade_request: Dict[str, Any]) -> Optional[str]:
         """Execute trade based on trade request"""
