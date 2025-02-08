@@ -5,6 +5,7 @@ Handles interaction with local Ollama API
 
 import os
 import json
+import re
 import requests
 from .base_model import BaseModel, ModelResponse
 
@@ -54,13 +55,19 @@ class OllamaModel(BaseModel):
             formatted_prompt = f"""
 {system_prompt}
 
-请用JSON格式回复。确保回复以 '{{' 开始，以 '}}' 结束。不要添加任何其他文本。
-Please respond in JSON format. Ensure the response starts with '{{' and ends with '}}'. Do not add any other text.
+请严格按照以下格式回复 | Please respond in the following format:
+```json
+{{
+    "key": "value"
+}}
+```
 
 {user_content}
 
-仅返回JSON格式的回复，不要添加任何其他文本。
-Return only the JSON response, do not add any other text."""
+注意事项 | Notes:
+1. 只返回JSON格式，不要添加任何其他文本 | Return only JSON, no other text
+2. 所有字符串必须用双引号 | All strings must use double quotes
+3. 数字不需要引号 | Numbers should not have quotes"""
             data = {
                 "model": self.model_name,
                 "prompt": formatted_prompt,
@@ -83,8 +90,26 @@ Return only the JSON response, do not add any other text."""
             
             # Clean up and parse JSON from full response
             try:
-                # Remove code blocks and clean whitespace
-                content = full_response.replace('```json', '').replace('```', '').strip()
+                # Extract JSON from code blocks or raw response
+                content = full_response.strip()
+                json_str = ""
+                
+                # Try to find JSON in code blocks first
+                if "```json" in content:
+                    parts = content.split("```json")
+                    if len(parts) > 1:
+                        json_block = parts[1].split("```")[0].strip()
+                        try:
+                            parsed_content = json.loads(json_block)
+                            return ModelResponse(
+                                content=json.dumps(parsed_content),
+                                raw_response={'response': full_response}
+                            )
+                        except json.JSONDecodeError:
+                            pass
+                
+                # Try to find raw JSON if no code blocks or invalid JSON in code blocks
+                content = content.replace('```json', '').replace('```', '').strip()
                 content = ' '.join(line.strip() for line in content.split('\n'))
                 
                 # Find JSON content
@@ -93,6 +118,10 @@ Return only the JSON response, do not add any other text."""
                 
                 if start_idx >= 0 and end_idx > start_idx:
                     json_str = content[start_idx:end_idx + 1]
+                    # Clean up any non-JSON text
+                    json_str = re.sub(r'[^\x00-\x7F]+', '', json_str)  # Remove non-ASCII chars
+                    json_str = re.sub(r'(?<!["{\s,])\s*:\s*(?![\s,}"])', '": "', json_str)  # Fix missing quotes
+                    json_str = re.sub(r'(?<=[}\]"])\s*(?=,)', '', json_str)  # Fix spacing
                     parsed_content = json.loads(json_str)
                     
                     # Map trade_type to direction for trading commands
@@ -250,4 +279,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                              
+            }                                      
