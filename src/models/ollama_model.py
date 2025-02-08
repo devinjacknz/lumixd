@@ -205,19 +205,29 @@ class OllamaModel(BaseModel):
             numbers = []
             for word in instruction.split():
                 try:
-                    num = float(word.replace(',', ''))
-                    numbers.append(num)
+                    # Remove any non-numeric characters except decimal point and negative sign
+                    cleaned = ''.join(c for c in word if c.isdigit() or c in '.-')
+                    if cleaned:
+                        num = float(cleaned)
+                        if num != 0:  # Only append non-zero numbers
+                            numbers.append(num)
                 except ValueError:
                     continue
-            amount = numbers[0] if numbers else DEFAULT_AMOUNT
+            
+            # Get the largest positive number as amount
+            positive_numbers = [n for n in numbers if n > 0]
+            amount = max(positive_numbers) if positive_numbers else DEFAULT_AMOUNT
             
             # Extract slippage using string operations
             slippage = DEFAULT_SLIPPAGE_BPS
             for word in instruction.split():
                 if '%' in word:
                     try:
-                        slippage = int(float(word.replace('%', '')) * 100)
-                        break
+                        # Remove any non-numeric characters except decimal point
+                        cleaned = ''.join(c for c in word if c.isdigit() or c == '.')
+                        if cleaned:
+                            slippage = int(float(cleaned) * 100)
+                            break
                     except ValueError:
                         continue
             
@@ -238,20 +248,6 @@ class OllamaModel(BaseModel):
             return {
                 'error': f'Failed to parse instruction: {str(e)}',
                 'error_cn': f'无法解析指令：{str(e)}'
-            }
-            
-            # Return the result if we have one
-            if result:
-                return result
-                
-            return {
-                'error': 'Invalid response format',
-                'error_cn': '响应格式无效'
-            }
-        except json.JSONDecodeError:
-            return {
-                'error': 'Failed to parse response',
-                'error_cn': '无法解析响应'
             }
             
     async def check_risk_dialogue(self, trade_request: dict) -> dict:
@@ -312,4 +308,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                                                                                                                                  
+            }                                                                                                                                          
