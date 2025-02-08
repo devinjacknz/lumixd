@@ -12,7 +12,7 @@ load_dotenv()
 # Set up test environment
 os.environ["WALLET_ADDRESS"] = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
 os.environ["RPC_ENDPOINT"] = "https://api.mainnet-beta.solana.com"
-os.environ["SOLANA_PRIVATE_KEY"] = "${walletkey}"  # Use test wallet key from environment
+os.environ["SOLANA_PRIVATE_KEY"] = os.environ.get("walletkey", "")  # Use test wallet key from environment
 
 # Mock responses
 MOCK_RESPONSES = {
@@ -115,7 +115,7 @@ async def test_dialogue_trading():
          patch('src.data.jupiter_client.JupiterClient.execute_swap', mock_swap), \
          patch('src.models.ollama_model.OllamaModel.generate_response', mock_generate):
         
-        agent = TradingAgent()
+        agent = TradingAgent(agent_type='trading', instance_id='test')
         
         # Test valid Chinese trading command
         cn_response = await test_trade_command(
