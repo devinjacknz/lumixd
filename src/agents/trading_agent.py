@@ -28,7 +28,6 @@ from src.monitoring.performance_monitor import PerformanceMonitor
 from src.monitoring.system_monitor import SystemMonitor
 from src.agents.risk_agent import RiskAgent
 from src.agents.focus_agent import FocusAgent
-from src.api.v1.models.trade_request import TradeRequest
 import json
 from pathlib import Path
 from src.config import (
@@ -250,13 +249,13 @@ class TradingAgent:
         except Exception as e:
             return False, f"Error checking balances: {str(e)}"
 
-    def execute_trade(self, trade_request: TradeRequest) -> Optional[str]:
+    def execute_trade(self, trade_request: Dict[str, Any]) -> Optional[str]:
         """Execute trade based on trade request"""
         if not self.active:
             cprint(f"❌ Instance {self.instance_id} is not active", "red")
             return None
         try:
-            if not trade_request.output_token:
+            if not trade_request.get('output_token'):
                 cprint("❌ Trade failed: No token specified", "red")
                 return None
                 
@@ -272,24 +271,24 @@ class TradingAgent:
             max_trade_size = float(os.getenv("SOL_BALANCE", "0")) * self.max_position_size
             
             # Check if new trade would exceed max position size
-            if total_position + trade_request.amount_sol > max_trade_size:
+            if total_position + trade_request.get('amount_sol', 0) > max_trade_size:
                 cprint(f"❌ Trade would exceed max position size of {max_trade_size} SOL", "red")
                 return None
                 
             jupiter = JupiterClient()
             
             # Calculate SOL amount for trade
-            trade_amount = min(trade_request.amount_sol, MAX_ORDER_SIZE_SOL)
+            trade_amount = min(trade_request.get('amount_sol', 0), MAX_ORDER_SIZE_SOL)
             client = ChainStackClient()
             start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
             
             # Get quote with optimized parameters
             quote = jupiter.get_quote(
-                trade_request.input_token,
-                trade_request.output_token,
+                trade_request.get('input_token'),
+                trade_request.get('output_token'),
                 str(int(trade_amount * 1e9)),
-                use_shared_accounts=trade_request.use_shared_accounts,
-                force_simpler_route=trade_request.force_simpler_route
+                use_shared_accounts=trade_request.get('use_shared_accounts', True),
+                force_simpler_route=trade_request.get('force_simpler_route', True)
             )
             if not quote:
                 cprint("❌ Failed to get quote", "red")
@@ -299,7 +298,7 @@ class TradingAgent:
             signature = jupiter.execute_swap(
                 quote,
                 os.getenv("WALLET_ADDRESS"),
-                use_shared_accounts=trade_request.use_shared_accounts
+                use_shared_accounts=trade_request.get('use_shared_accounts', True)
             )
                 
             if signature:
@@ -307,11 +306,11 @@ class TradingAgent:
                 gas_cost = start_balance - end_balance - trade_amount
                 metrics = {
                     'instance_id': self.instance_id,
-                    'token': trade_request.output_token,
+                    'token': trade_request.get('output_token'),
                     'direction': 'BUY',
                     'amount': trade_amount,
                     'execution_time': 0,  # Will be set by caller
-                    'slippage': trade_request.slippage_bps / 100,
+                    'slippage': trade_request.get('slippage_bps', 250) / 100,
                     'gas_cost': gas_cost,
                     'success': True
                 }

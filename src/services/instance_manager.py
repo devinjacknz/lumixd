@@ -87,14 +87,14 @@ class InstanceManager:
                 cprint(f"❌ Instance {instance_id} is not active", "red")
                 return None
                 
-            trade_request = TradeRequest(
-                input_token="So11111111111111111111111111111111111111112",
-                output_token=token,
-                amount_sol=amount_sol,
-                slippage_bps=instance.parameters.get('slippage_bps', 250),
-                use_shared_accounts=instance.parameters.get('use_shared_accounts', True),
-                force_simpler_route=instance.parameters.get('force_simpler_route', True)
-            )
+            trade_request = {
+                'input_token': "So11111111111111111111111111111111111111112",
+                'output_token': token,
+                'amount_sol': amount_sol,
+                'slippage_bps': instance.parameters.get('slippage_bps', 250),
+                'use_shared_accounts': instance.parameters.get('use_shared_accounts', True),
+                'force_simpler_route': instance.parameters.get('force_simpler_route', True)
+            }
             
             signature = agent.execute_trade(trade_request)
             if signature:
