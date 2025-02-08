@@ -97,4 +97,4 @@ class StrategyAgent(BaseAgent):
 
 if __name__ == "__main__":
     agent = StrategyAgent()
-    agent.run()
+    asyncio.run(agent.run())

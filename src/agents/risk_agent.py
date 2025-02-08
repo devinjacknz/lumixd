@@ -44,14 +44,22 @@ class RiskAgent(BaseAgent):
             total_position = sum(float(pos.get('amount', 0)) for pos in positions) if positions else 0
             
             # Get SOL balance from RPC
+            rpc_endpoint = os.getenv("RPC_ENDPOINT")
+            if not rpc_endpoint:
+                raise ValueError("RPC_ENDPOINT environment variable is not set")
+                
+            wallet_address = os.getenv("WALLET_ADDRESS")
+            if not wallet_address:
+                raise ValueError("WALLET_ADDRESS environment variable is not set")
+                
             response = requests.post(
-                os.getenv("RPC_ENDPOINT"),
+                rpc_endpoint,
                 headers={"Content-Type": "application/json"},
                 json={
                     "jsonrpc": "2.0",
                     "id": "get-balance",
                     "method": "getBalance",
-                    "params": [os.getenv("WALLET_ADDRESS")]
+                    "params": [wallet_address]
                 }
             )
             response.raise_for_status()
@@ -252,4 +260,4 @@ class RiskAgent(BaseAgent):
 
 if __name__ == "__main__":
     agent = RiskAgent()
-    agent.run()
+    asyncio.run(agent.run())

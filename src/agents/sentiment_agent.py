@@ -527,17 +527,22 @@ class SentimentAgent(BaseAgent):
             cprint(f"\n❌ Error in sentiment agent: {str(e)}", "red")
 
 if __name__ == "__main__":
+    agent = SentimentAgent()
+    cprint(f"\nSentiment Agent starting (checking every {CHECK_INTERVAL_MINUTES} minutes)...", "cyan")
+    
+    async def main():
+        try:
+            await agent.run()
+        except KeyboardInterrupt:
+            cprint("\nSentiment Agent shutting down gracefully...", "yellow")
+        except Exception as e:
+            cprint(f"\n❌ Fatal error: {str(e)}", "red")
+            sys.exit(1)
+            
     try:
-        agent = SentimentAgent()
-        cprint(f"\nSentiment Agent starting (checking every {CHECK_INTERVAL_MINUTES} minutes)...", "cyan")
-        
-        async def main():
-            try:
-                await agent.run()
-            except KeyboardInterrupt:
-                cprint("\nSentiment Agent shutting down gracefully...", "yellow")
-            except Exception as e:
-                cprint(f"\n❌ Fatal error: {str(e)}", "red")
-                sys.exit(1)
-                
         asyncio.run(main())
+    except KeyboardInterrupt:
+        cprint("\nSentiment Agent shutting down gracefully...", "yellow")
+    except Exception as e:
+        cprint(f"\n❌ Fatal error: {str(e)}", "red")
+        sys.exit(1)
