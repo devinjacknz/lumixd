@@ -1,8 +1,11 @@
 import time
 import os
+import requests
 from datetime import datetime, timedelta
 from termcolor import cprint
 from src.data.jupiter_client import JupiterClient
+from src.agents.risk_agent import RiskAgent
+
 
 # Token addresses
 AI16Z_TOKEN = "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC"
@@ -10,12 +13,56 @@ SWARM_TOKEN = "GHoewwgqzpyr4honfYZXDjWVqEQf4UVnNkbzqpqzwxPr"  # Updated SWARM to
 SOL_TOKEN = "So11111111111111111111111111111111111111112"
 
 # Trading parameters
-TRADE_AMOUNT_SOL = 0.001
+TRADE_AMOUNT_SOL = 0.0001
 TRADE_INTERVAL_SECONDS = 15 * 60  # 15 minutes
 VERIFICATION_DURATION_HOURS = 2
 
-def execute_trade(client: JupiterClient, input_token: str, output_token: str, amount_lamports: int) -> bool:
+def execute_trade(client: JupiterClient, risk_agent: RiskAgent, input_token: str, output_token: str, amount_lamports: int) -> bool:
     try:
+        # Check risk limits first
+        if not risk_agent.check_risk_limits(amount_lamports / 1e9):
+            cprint("❌ Risk limits exceeded", "red")
+            return False
+            
+        # Check wallet balance
+        response = requests.post(
+            os.getenv("RPC_ENDPOINT"),
+            headers={"Content-Type": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": "get-balance",
+                "method": "getBalance",
+                "params": [os.getenv("WALLET_ADDRESS")]
+            }
+        )
+        response.raise_for_status()
+        balance = float(response.json().get("result", {}).get("value", 0)) / 1e9
+        
+        if balance < amount_lamports / 1e9 * 1.1:  # Add 10% buffer for fees
+            cprint(f"❌ Insufficient balance: {balance} SOL", "red")
+            return False
+            
+        # Add delay between trades
+        time.sleep(5)
+            
+        # Check wallet balance
+        response = requests.post(
+            os.getenv("RPC_ENDPOINT"),
+            headers={"Content-Type": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": "get-balance",
+                "method": "getBalance",
+                "params": [os.getenv("WALLET_ADDRESS")]
+            }
+        )
+        response.raise_for_status()
+        balance = float(response.json().get("result", {}).get("value", 0)) / 1e9
+        
+        if balance < amount_lamports / 1e9 * 1.1:  # Add 10% buffer for fees
+            cprint(f"❌ Insufficient balance: {balance} SOL", "red")
+            return False
+            
         # Get quote with optimized parameters
         quote = client.get_quote(
             input_token, 
@@ -59,6 +106,7 @@ def execute_trade(client: JupiterClient, input_token: str, output_token: str, am
 
 def main():
     client = JupiterClient()
+    risk_agent = RiskAgent()
     wallet_address = os.getenv("WALLET_ADDRESS")
     if not wallet_address:
         cprint("❌ WALLET_ADDRESS environment variable not set", "red")
@@ -86,15 +134,15 @@ def main():
                 
                 # Trade SOL for AI16z
                 cprint("\n💱 Trading SOL for AI16z...", "cyan")
-                success = execute_trade(client, SOL_TOKEN, AI16Z_TOKEN, trade_amount_lamports)
+                success = execute_trade(client, risk_agent, SOL_TOKEN, AI16Z_TOKEN, trade_amount_lamports)
                 if success:
                     cprint("✅ AI16z trade completed", "green")
                 
-                time.sleep(5)  # Wait 5 seconds between trades
+                time.sleep(30)  # Wait 30 seconds between trades
                 
                 # Trade SOL for SWARM
                 cprint("\n💱 Trading SOL for SWARM...", "cyan")
-                success = execute_trade(client, SOL_TOKEN, SWARM_TOKEN, trade_amount_lamports)
+                success = execute_trade(client, risk_agent, SOL_TOKEN, SWARM_TOKEN, trade_amount_lamports)
                 if success:
                     cprint("✅ SWARM trade completed", "green")
                 

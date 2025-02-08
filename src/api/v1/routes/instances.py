@@ -37,10 +37,10 @@ from src.data.jupiter_client import JupiterClient
 from src.api.v1.models.instance_trade import InstanceTradeRequest
 
 def get_instance_manager() -> InstanceManager:
-    raise NotImplementedError()
+    return InstanceManager()
 
 def get_balance_manager() -> BalanceManager:
-    raise NotImplementedError()
+    return BalanceManager()
 
 router = APIRouter()
 instances_db: Dict[str, TradingInstance] = {}
@@ -167,7 +167,8 @@ async def toggle_instance(
 async def execute_instance_trade(
     instance_id: str,
     trade: InstanceTradeRequest,
-    instance_manager: InstanceManager = Depends(get_instance_manager)
+    instance_manager: InstanceManager = Depends(get_instance_manager),
+    balance_manager: BalanceManager = Depends(get_balance_manager)
 ):
     check_rate_limit(instance_id)
     if instance_id not in instances_db:
@@ -182,18 +183,49 @@ async def execute_instance_trade(
         raise HTTPException(status_code=500, detail="Trading agent not found")
         
     try:
+        # Check balance and validate trade
+        balance = await balance_manager.get_instance_balance(instance_id)
+        if not agent.strategy.validate_trade(trade.amount_sol, balance):
+            raise HTTPException(status_code=400, detail="Trade validation failed")
+            
+        # Get strategy parameters
+        strategy_params = agent.strategy.get_trade_parameters()
+        
         # Prepare trade request with SOL as input token
         trade_request = TradeRequest(
             input_token="So11111111111111111111111111111111111111112",
             output_token=trade.token,
             amount_sol=trade.amount_sol,
-            slippage_bps=instance.parameters.get("slippage_bps", 250),
-            use_shared_accounts=instance.parameters.get("use_shared_accounts", True),
-            force_simpler_route=instance.parameters.get("force_simpler_route", True)
+            slippage_bps=strategy_params.get("slippage_bps", 250),
+            use_shared_accounts=strategy_params.get("use_shared_accounts", True),
+            force_simpler_route=strategy_params.get("force_simpler_route", True)
         )
-        result = await agent.execute_trade(trade_request)
-        return {"success": True, "result": result}
+        
+        # Execute trade and monitor
+        signature = agent.execute_trade(trade_request)
+        if not signature:
+            raise HTTPException(status_code=500, detail="Trade execution failed")
+            
+        # Update instance metrics
+        await instance_manager.update_instance_metrics(instance_id, {
+            "last_trade_time": datetime.now(),
+            "last_trade_status": "success",
+            "last_trade_signature": signature
+        })
+        
+        return {
+            "success": True,
+            "signature": signature,
+            "solscan_url": f"https://solscan.io/tx/{signature}"
+        }
+    except HTTPException:
+        raise
     except Exception as e:
+        await instance_manager.update_instance_metrics(instance_id, {
+            "last_trade_time": datetime.now(),
+            "last_trade_status": "failed",
+            "last_error": str(e)
+        })
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{instance_id}/metrics")

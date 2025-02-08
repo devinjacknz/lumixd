@@ -8,10 +8,11 @@ from src.data.jupiter_client import JupiterClient
 def fetch_wallet_holdings_og(wallet_address: str):
     """Fetch wallet holdings"""
     try:
-        return []
+        import pandas as pd
+        return pd.DataFrame(columns=['Mint Address', 'Amount', 'USD Value'])
     except Exception as e:
         cprint(f"❌ Failed to fetch wallet holdings: {str(e)}", "red")
-        return []
+        return pd.DataFrame(columns=['Mint Address', 'Amount', 'USD Value'])
 
 def market_buy(token_address: str, amount: str) -> bool:
     """Execute a market buy order"""

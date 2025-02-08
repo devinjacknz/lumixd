@@ -6,6 +6,7 @@ Monitors and manages trading risk
 import os
 import sys
 import time
+import requests
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -24,6 +25,50 @@ class RiskAgent:
         self.max_position_size = 0.20
         self.cash_buffer = 0.30
         self.slippage = 0.025
+        self.positions = []
+        
+    def get_current_positions(self) -> list:
+        """Get current trading positions"""
+        return self.positions
+        
+    def check_risk_limits(self, trade_amount: float) -> bool:
+        """Check if trade amount is within risk limits"""
+        try:
+            # Get current positions
+            positions = self.get_current_positions()
+            
+            # Calculate total position size
+            total_position = sum(float(pos.get('amount', 0)) for pos in positions) if positions else 0
+            
+            # Get SOL balance from RPC
+            response = requests.post(
+                os.getenv("RPC_ENDPOINT"),
+                headers={"Content-Type": "application/json"},
+                json={
+                    "jsonrpc": "2.0",
+                    "id": "get-balance",
+                    "method": "getBalance",
+                    "params": [os.getenv("WALLET_ADDRESS")]
+                }
+            )
+            response.raise_for_status()
+            balance = float(response.json().get("result", {}).get("value", 0)) / 1e9  # Convert lamports to SOL
+            
+            # Check if trade amount exceeds balance
+            if trade_amount > balance:
+                cprint(f"❌ Trade amount {trade_amount} SOL exceeds balance {balance} SOL", "red")
+                return False
+            
+            # Check if new trade would exceed max position size
+            max_trade_size = balance * self.max_position_size
+            if total_position + trade_amount > max_trade_size:
+                cprint(f"❌ Trade would exceed max position size of {max_trade_size} SOL", "red")
+                return False
+                
+            return True
+        except Exception as e:
+            cprint(f"❌ Error checking risk limits: {str(e)}", "red")
+            return False
         
     def _parse_analysis(self, response: str) -> dict:
         """Parse AI model response into structured data"""

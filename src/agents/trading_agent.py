@@ -243,44 +243,59 @@ class TradingAgent:
         except Exception as e:
             return False, f"Error checking balances: {str(e)}"
 
-    def execute_trade(self, trade_request: TradeRequest) -> bool:
+    def execute_trade(self, trade_request: TradeRequest) -> Optional[str]:
         """Execute trade based on trade request"""
         if not self.active:
             cprint(f"❌ Instance {self.instance_id} is not active", "red")
-            return False
+            return None
         try:
             if not trade_request.output_token:
                 cprint("❌ Trade failed: No token specified", "red")
-                return False
+                return None
                 
             # Check balances first
             balances_ok, reason = self.check_balances()
             if not balances_ok:
                 cprint(f"❌ Trade failed: {reason}", "red")
-                return False
+                return None
                 
-            # Check risk limits
-            if not self._check_risk_limits():
-                cprint("❌ Trade failed: Risk limits exceeded", "red")
-                return False
+            # Get current positions and calculate total position value
+            positions_df = fetch_wallet_holdings_og(os.getenv("WALLET_ADDRESS", ""))
+            total_position = positions_df['USD Value'].sum()
+            max_trade_size = float(os.getenv("SOL_BALANCE", "0")) * self.max_position_size
+            
+            # Check if new trade would exceed max position size
+            if total_position + trade_request.amount_sol > max_trade_size:
+                cprint(f"❌ Trade would exceed max position size of {max_trade_size} SOL", "red")
+                return None
                 
             jupiter = JupiterClient()
-            jupiter.slippage_bps = SLIPPAGE
             
             # Calculate SOL amount for trade
             trade_amount = min(trade_request.amount_sol, MAX_ORDER_SIZE_SOL)
             client = ChainStackClient()
             start_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
             
-            jupiter = JupiterClient()
-            success = jupiter.execute_swap(
-                input_token=trade_request.input_token,
-                output_token=trade_request.output_token,
-                amount=trade_amount,
-                slippage_bps=trade_request.slippage_bps
+            # Get quote with optimized parameters
+            quote = jupiter.get_quote(
+                trade_request.input_token,
+                trade_request.output_token,
+                str(int(trade_amount * 1e9)),
+                use_shared_accounts=trade_request.use_shared_accounts,
+                force_simpler_route=trade_request.force_simpler_route
+            )
+            if not quote:
+                cprint("❌ Failed to get quote", "red")
+                return None
+                
+            # Execute swap
+            signature = jupiter.execute_swap(
+                quote,
+                os.getenv("WALLET_ADDRESS"),
+                use_shared_accounts=trade_request.use_shared_accounts
             )
                 
-            if success:
+            if signature:
                 end_balance = client.get_wallet_balance(os.getenv("WALLET_ADDRESS"))
                 gas_cost = start_balance - end_balance - trade_amount
                 metrics = {
@@ -289,7 +304,7 @@ class TradingAgent:
                     'direction': 'BUY',
                     'amount': trade_amount,
                     'execution_time': 0,  # Will be set by caller
-                    'slippage': self.slippage * 100,
+                    'slippage': trade_request.slippage_bps / 100,
                     'gas_cost': gas_cost,
                     'success': True
                 }
@@ -298,10 +313,10 @@ class TradingAgent:
                 self.successful_trades += 1
                 self.last_trade_time = datetime.now()
                 
-            return success
+            return signature
         except Exception as e:
-            print(f"Error executing trade: {e}")
-            return False
+            cprint(f"❌ Error executing trade: {str(e)}", "red")
+            return None
             
     def check_circuit_breakers(self, trade_data: dict) -> tuple[bool, str]:
         """Check multi-layer circuit breakers"""
