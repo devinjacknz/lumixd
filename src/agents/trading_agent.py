@@ -6,7 +6,9 @@ Handles automated trading execution and analysis
 import os
 import sys
 import time
+import json
 import aiohttp
+main
 import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -15,15 +17,15 @@ import pandas as pd
 import numpy as np
 from termcolor import cprint
 from dotenv import load_dotenv
+from decimal import Decimal
 from src.monitoring.performance_monitor import PerformanceMonitor
 from src.monitoring.system_monitor import SystemMonitor
+from src.services.logging_service import logging_service
 from src import nice_funcs as n
 from src.data.ohlcv_collector import collect_all_tokens
-from typing import Dict, Any, Optional
-from decimal import Decimal
-from datetime import datetime
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
+from src.data.raydium_client import RaydiumClient
 from src.data.chainstack_client import ChainStackClient
 from src.strategies.snap_strategy import SnapStrategy
 from src.monitoring.performance_monitor import PerformanceMonitor
@@ -31,8 +33,6 @@ from src.monitoring.system_monitor import SystemMonitor
 from src.agents.base_agent import BaseAgent
 from src.agents.risk_agent import RiskAgent
 from src.agents.focus_agent import FocusAgent
-import json
-from pathlib import Path
 from src.config import (
     USDC_SIZE,
     MAX_LOSS_PERCENTAGE,
@@ -83,11 +83,11 @@ class TradingAgent(BaseAgent):
         
         # Initialize trading components
         self.jupiter_client = JupiterClient()
+        self.raydium_client = RaydiumClient()
         self.chainstack_client = ChainStackClient()
         self.sol_token = "So11111111111111111111111111111111111111112"
         
         # Initialize position tracking
-        self.chainstack_client = ChainStackClient()
         self.positions: Dict[str, float] = {}
         
     def _parse_analysis(self, response: str) -> dict:
@@ -227,17 +227,35 @@ class TradingAgent(BaseAgent):
             values[token] = size * price
         return values
             
+    async def get_token_price_raydium(self, token_address: str) -> Optional[Decimal]:
+        """Get token price from Raydium
+        
+        Args:
+            token_address: Token mint address
+            
+        Returns:
+            Token price as Decimal or None if error occurs
+        """
+        try:
+            async with RaydiumClient() as client:
+                return await client.get_token_price(token_address)
+        except Exception as e:
+            cprint(f"❌ Failed to get Raydium token price: {str(e)}", "red")
+            return None
+            
     async def get_token_price(self, token: str) -> float:
-        """Get token price in SOL"""
+        """Get token price in SOL using Jupiter"""
         try:
             quote = await self.jupiter_client.get_quote(
                 input_mint=token,
+                output_mint=self.sol_token,
+                amount="1000000000"  # 1 unit in smallest denomination
                 output_mint=self.jupiter_client.sol_token,
                 amount="1000000000",  # 1 unit in smallest denomination
                 use_shared_accounts=True,
                 force_simpler_route=True
             )
-            if not quote:
+            if not quote or not isinstance(quote, dict):
                 return 0.0
             return float(quote.get('outAmount', 0)) / 1e9
         except Exception as e:
@@ -349,7 +367,25 @@ class TradingAgent(BaseAgent):
             if not wallet_address:
                 return False, "Wallet address not set"
                 
+            # Get real-time SOL balance from ChainStack
             sol_balance = await self.chainstack_client.get_wallet_balance(wallet_address)
+            if not sol_balance:
+                return False, "Failed to get SOL balance"
+                
+            # Convert to float for comparison
+            balance_sol = float(sol_balance)
+            
+            # Check minimum SOL balance (0.02 SOL for trade + 0.01 SOL buffer)
+            min_required = 0.02 + 0.01  # Trade amount + buffer for gas
+            
+            if balance_sol < min_required:
+                return False, f"Insufficient SOL balance: {balance_sol:.4f} SOL (required: {min_required:.4f} SOL)"
+                
+            # Log balance check
+            cprint(f"✅ SOL balance check passed: {balance_sol:.4f} SOL", "green")
+            return True, f"Sufficient SOL balance: {balance_sol:.4f} SOL"
+                
+
             if not sol_balance or float(sol_balance) < MIN_SOL_BALANCE:
                 return False, f"Insufficient SOL balance: {sol_balance}"
                 
@@ -372,7 +408,17 @@ class TradingAgent(BaseAgent):
                 
             return True, "Sufficient balances"
         except Exception as e:
-            return False, f"Error checking balances: {str(e)}"
+            error_msg = f"Error checking balances: {str(e)}"
+            cprint(f"❌ {error_msg}", "red")
+            await logging_service.log_error(
+                error_msg,
+                {
+                    'error': str(e),
+                    'wallet': '[REDACTED]'
+                },
+                'system'
+            )
+            return False, error_msg
 
     async def execute_trade(self, trade_request: Dict[str, Any]) -> Optional[str]:
         """Execute trade based on trade request"""
@@ -391,6 +437,68 @@ class TradingAgent(BaseAgent):
                 return None
                 
             # Check balances first
+            balances_ok, reason = await self.check_balances()
+            if not balances_ok:
+                cprint(f"❌ Trade failed: {reason}", "red")
+                return None
+                
+            # Route specific token to Raydium
+            if trade_request['token'] == "6AJcP7wuLwmRYLBNbi825wgguaPsWzPBEHcHndpRpump":
+                try:
+                    # Use Raydium for specified token with fixed 0.02 SOL amount
+                    amount = str(int(0.02 * 1e9))  # Convert to lamports
+                    
+                    async with self.raydium_client as client:
+                        quote = await client.get_quote(
+                            input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
+                            output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
+                            amount=amount
+                        )
+                        if not quote:
+                            cprint("❌ Failed to get Raydium quote", "red")
+                            return None
+                            
+                        # Execute swap with SOL wrapping/unwrapping
+                        signature = await client.execute_swap(
+                            quote=quote,
+                            wallet_key=wallet_address,
+                            is_sol_trade=True  # Enable SOL wrapping/unwrapping
+                        )
+                        
+                        if signature:
+                            # Verify transaction
+                            success = await client.verify_transaction(signature)
+                            if not success:
+                                cprint(f"❌ Transaction failed verification: {signature}", "red")
+                                return None
+                                
+                            # Log metrics
+                            await self.performance_monitor.log_trade_metrics({
+                                'instance_id': self.instance_id,
+                                'token': trade_request['token'],
+                                'direction': trade_request.get('direction', 'buy'),
+                                'amount': 0.02,  # Fixed amount
+                                'execution_time': datetime.now().timestamp(),
+                                'slippage': trade_request.get('slippage_bps', 250) / 100,
+                                'success': True,
+                                'dex': 'raydium'
+                            })
+                            
+                            self.total_trades += 1
+                            self.successful_trades += 1
+                            self.last_trade_time = datetime.now()
+                            
+                            cprint(f"✅ Raydium trade successful: {signature}", "green")
+                            return signature
+                            
+                        return None
+                except Exception as e:
+                    cprint(f"❌ Raydium trade error: {str(e)}", "red")
+                    return None
+                    
+            # Use Jupiter for all other tokens
+            try:
+                # Get quote with optimized parameters
             try:
                 # Get quote first to check if we can trade
                 quote = await self.jupiter_client.get_quote(
@@ -399,6 +507,54 @@ class TradingAgent(BaseAgent):
                     amount=str(int(float(trade_request['amount']) * 1e9))  # Convert to lamports
                 )
                 if not quote:
+                    cprint("❌ Failed to get Jupiter quote", "red")
+                    return None
+                    
+                # Execute swap
+                signature = await self.jupiter_client.execute_swap(
+                    quote_response=quote,
+                    wallet_pubkey=wallet_address,
+                    use_shared_accounts=True
+                )
+                
+                if signature:
+                    # Log metrics for Jupiter trade
+                    await self.performance_monitor.log_trade_metrics({
+                        'instance_id': self.instance_id,
+                        'token': trade_request['token'],
+                        'direction': trade_request.get('direction', 'buy'),
+                        'amount': float(trade_request['amount']),
+                        'execution_time': datetime.now().timestamp(),
+                        'slippage': trade_request.get('slippage_bps', 250) / 100,
+                        'success': True,
+                        'dex': 'jupiter'
+                    })
+                    
+                    self.total_trades += 1
+                    self.successful_trades += 1
+                    self.last_trade_time = datetime.now()
+                    
+                    # Update position tracking for buys
+                    if trade_request.get('direction') == 'buy':
+                        current = self.positions.get(trade_request['token'], 0.0)
+                        self.positions[trade_request['token']] = current + float(trade_request['amount'])
+                        
+                    cprint(f"✅ Jupiter trade successful: {signature}", "green")
+                    
+                return signature
+                
+            except Exception as e:
+                cprint(f"❌ Jupiter trade error: {str(e)}", "red")
+                await logging_service.log_error(
+                    f"Jupiter trade error: {str(e)}",
+                    {
+                        'error': str(e),
+                        'token': trade_request['token'],
+                        'direction': trade_request.get('direction', 'buy')
+                    },
+                    'trading'
+                )
+                return None
                     cprint(f"❌ Trade failed: Unable to get quote", "red")
                     return None
             except Exception as e:
@@ -856,6 +1012,7 @@ class TradingAgent(BaseAgent):
                             signature = await self.execute_trade(trade_request)
                             execution_time = int((time.time() - start_time) * 1000)
                             
+                            await self.performance_monitor.log_trade_metrics({
                             metrics = {
                                 'token': token,
                                 'direction': analysis['action'],

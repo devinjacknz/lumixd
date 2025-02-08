@@ -107,6 +107,44 @@ An intelligent dialogue platform for DeFi interactions, powered by DeepSeek R1 1
    - Monitor order execution 监控订单执行: `http://localhost:8000/api/v1/monitor/orders`
    - Track system metrics 追踪系统指标: `http://localhost:8000/api/v1/monitor/metrics`
 
+## Raydium Integration / Raydium集成
+
+The system integrates with Raydium V3 API for enhanced liquidity and trading capabilities. / 系统集成了Raydium V3 API以提供增强的流动性和交易功能。
+
+### Features / 功能
+- Pool information retrieval / 池信息检索
+- Token price queries / 代币价格查询
+- AMM integration / AMM集成
+- Comprehensive error handling / 全面的错误处理
+- Bilingual support / 双语支持
+
+### Configuration / 配置
+```python
+RAYDIUM_CONFIG = {
+    "enabled": True,              # Enable/disable Raydium integration / 启用/禁用Raydium集成
+    "base_url": "https://api-v3.raydium.io",  # Raydium API endpoint / Raydium API端点
+    "retry_attempts": 3,          # Number of retry attempts / 重试次数
+    "retry_delay": 1.0,          # Initial delay between retries (seconds) / 重试间隔（秒）
+    "timeout": 30                 # Request timeout (seconds) / 请求超时（秒）
+}
+```
+
+### Usage Examples / 使用示例
+```python
+async with RaydiumClient() as client:
+    # Get pool information / 获取池信息
+    pool_info = await client.get_pool_info(["pool_id"])
+    
+    # Get token price / 获取代币价格
+    price = await client.get_token_price("token_mint_address")
+    
+    # Error handling example / 错误处理示例
+    try:
+        price = await client.get_token_price("invalid_address")
+    except Exception as e:
+        print(f"Error: {str(e)}")
+```
+
 ## Trading Parameters 交易参数
 
 ### Default Settings 默认设置
