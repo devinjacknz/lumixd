@@ -116,35 +116,43 @@ class ChainStackClient:
             cprint(f"❌ Error getting wallet balance: {str(e)}", "red")
             return 0.0
 
-    async def get_token_data(self, token_address: str, days_back: int = 3, timeframe: str = '1H') -> pd.DataFrame:
+    async def get_token_data(self, token_address: str, days_back: int = 3, timeframe: str = '1H') -> Dict:
+        """Get token market data in a JSON-serializable format"""
         response = await self._post_rpc("getTokenLargestAccounts", [token_address])
         if "result" not in response or "value" not in response["result"]:
-            return pd.DataFrame()
+            return {
+                "price": 0,
+                "volume": 0,
+                "market_data": []
+            }
             
         largest_account = response["result"]["value"][0]
         current_price = float(largest_account["amount"]) / 1e9
         volume = current_price * 0.1
         
         now = datetime.now()
-        df = pd.DataFrame({
-            'Datetime (UTC)': [now.strftime('%Y-%m-%d %H:%M:%S')],
-            'Open': [current_price],
-            'High': [current_price],
-            'Low': [current_price],
-            'Close': [current_price],
-            'Volume': [volume]
-        })
+        timestamp = now.strftime('%Y-%m-%d %H:%M:%S')
         
-        if len(df) >= 20:
-            df['MA20'] = df['Close'].rolling(window=20).mean()
-            df['RSI'] = self._calculate_rsi(df['Close'])
-        if len(df) >= 40:
-            df['MA40'] = df['Close'].rolling(window=40).mean()
-            df['Price_above_MA20'] = df['Close'] > df['MA20']
-            df['Price_above_MA40'] = df['Close'] > df['MA40']
-            df['MA20_above_MA40'] = df['MA20'] > df['MA40']
-            
-        return df
+        # Create market data in a serializable format
+        market_data = {
+            "price": current_price,
+            "volume": volume,
+            "market_data": [{
+                "timestamp": timestamp,
+                "open": current_price,
+                "high": current_price,
+                "low": current_price,
+                "close": current_price,
+                "volume": volume
+            }],
+            "indicators": {
+                "ma20": current_price,  # Simplified for single data point
+                "ma40": current_price,
+                "rsi": 50  # Default RSI value
+            }
+        }
+        
+        return market_data
             
     def _calculate_rsi(self, prices: pd.Series, periods: int = 14) -> pd.Series:
         deltas = prices.diff()

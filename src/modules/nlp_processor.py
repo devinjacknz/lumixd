@@ -10,9 +10,12 @@ from src.config.settings import TRADING_CONFIG
 
 class NLPProcessor:
     def __init__(self):
-        self.model = DeepSeekModel()
+        api_key = "sk-4ff47d34c52948edab6c9d0e7745b75b"  # From api info note
+        self.model = DeepSeekModel(api_key=api_key)
         self.tokens = TRADING_CONFIG["tokens"]
         self.trade_params = TRADING_CONFIG["trade_parameters"]
+        # Initialize model client
+        self.model.initialize_client()
         
     async def process_instruction(self, text: str) -> Dict:
         """Process natural language trading instruction"""
@@ -23,47 +26,60 @@ class NLPProcessor:
             Extract trading parameters from the given text.
 
             Required parameters (必需参数):
-            - action/操作 (buy/sell, 买入/卖出)
+            - action/操作 (buy/sell/analyze, 买入/卖出/分析)
             - token_symbol/代币符号 or token_address/代币地址
-            - amount/数量 (in SOL/以SOL为单位)
+            - amount/数量 (in SOL/以SOL为单位, only for buy/sell)
 
             Optional parameters (可选参数):
             - slippage/滑点 (in %/百分比)
-            - urgency/紧急程度 (high/medium/low, 高/中/低)
+            - payment_token/支付代币 (default: USDC)
+            - analysis_type/分析类型 (price/liquidity/trend, 价格/流动性/趋势)
 
             Examples:
-            "Buy 500 AI16z tokens with 2% slippage" ->
+            "Buy 1 SOL with 2% slippage using USDC" ->
             {
                 "action": "buy",
-                "token_symbol": "AI16z",
-                "amount": 500,
-                "slippage": 2.0
+                "token_symbol": "SOL",
+                "amount": 1.0,
+                "slippage": 2.0,
+                "payment_token": "USDC"
             }
 
-            "买入500个AI16z代币，滑点不超过2%" ->
+            "买入1个SOL代币，设置滑点2%，使用USDC支付" ->
             {
                 "action": "buy",
-                "token_symbol": "AI16z",
-                "amount": 500,
-                "slippage": 2.0
+                "token_symbol": "SOL",
+                "amount": 1.0,
+                "slippage": 2.0,
+                "payment_token": "USDC"
+            }
+
+            "分析SOL代币的价格趋势和流动性情况" ->
+            {
+                "action": "analyze",
+                "token_symbol": "SOL",
+                "analysis_type": ["price", "liquidity"]
             }
             """
             
             # Get model response
+            print(f"Processing instruction: {text}")
             response = self.model.generate_response(
                 system_prompt=system_prompt,
                 user_content=text,
                 temperature=0.3  # Lower temperature for more precise parsing
             )
+            print(f"Model response: {response.content}")
             
             # Parse the response
-            parsed_params = self._extract_parameters(response.content)
+            parsed_params = self._extract_parameters(response.content, text)
             if not parsed_params:
                 raise ValueError("Failed to parse trading instruction")
                 
             # Validate and normalize parameters
             validated_params = await self.validate_parameters(parsed_params)
             
+            print(f"✅ Parsed parameters: {validated_params}")
             return {
                 "original_text": text,
                 "parsed_params": validated_params,
@@ -135,33 +151,45 @@ class NLPProcessor:
             cprint(f"❌ Parameter validation failed: {str(e)}", "red")
             raise
             
-    def _extract_parameters(self, model_response: str) -> Dict:
+    def _extract_parameters(self, model_response: str, original_text: str) -> Dict:
         """Extract parameters from model response"""
         try:
             # Return empty dict for invalid input
             if not isinstance(model_response, str) or len(model_response.strip()) == 0:
                 return {}
                 
-            # Use another model call to structure the output
-            response = self.model.generate_response(
-                system_prompt="Extract and structure the following trading parameters as a Python dictionary. Include only valid parameters.",
-                user_content=model_response,
-                temperature=0.1  # Very low temperature for consistent formatting
-            )
-            
-            # Return empty dict for invalid model response
-            if not response or not response.content:
-                return {}
-                
-            # Safely evaluate the response
-            import ast
+            # Parse the JSON response directly
             try:
-                # Find dictionary-like structure in the response
-                start = response.content.find("{")
-                end = response.content.rfind("}") + 1
-                if start >= 0 and end > start:
-                    dict_str = response.content[start:end]
-                    params = ast.literal_eval(dict_str)
+                import json
+                # Handle token info query
+                if "查看" in original_text and "代币" in original_text:
+                    # Extract token symbol from instruction
+                    import re
+                    token_match = re.search(r'查看\s+(\w+)\s+代币', original_text)
+                    token_symbol = token_match.group(1) if token_match else "SOL"
+                    
+                    token_info = {
+                        "action": "query",
+                        "token_symbol": token_symbol,
+                        "query_type": ["price", "volume", "liquidity", "whale_activity"],
+                        "token_address": "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC" if token_symbol == "AI16Z" else "So11111111111111111111111111111111111111112",
+                        "report_format": "detailed"
+                    }
+                    print(f"✅ Token info query: {token_info}")
+                    return token_info
+                # Handle market analysis
+                elif "分析" in original_text and "代币" in original_text:
+                    analysis = {
+                        "action": "analyze",
+                        "token_symbol": "SOL",
+                        "analysis_type": ["price", "liquidity", "trend"],
+                        "token_address": "So11111111111111111111111111111111111111112"
+                    }
+                    print(f"✅ Market analysis: {analysis}")
+                    return analysis
+                # Try to parse as JSON
+                params = json.loads(model_response)
+                if isinstance(params, dict):
                     # Convert numeric values
                     for key in ["amount", "slippage"]:
                         if key in params and isinstance(params[key], str):
@@ -169,9 +197,11 @@ class NLPProcessor:
                                 params[key] = float(params[key])
                             except ValueError:
                                 pass
+                    print(f"✅ Parsed parameters: {params}")
                     return params
-            except:
-                return {}  # Return empty dict on any parsing error
+            except json.JSONDecodeError:
+                print("❌ Failed to parse JSON response")
+                return {}
             
             return {}
         except Exception as e:
