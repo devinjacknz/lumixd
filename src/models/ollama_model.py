@@ -60,7 +60,7 @@ class OllamaModel(BaseModel):
             formatted_prompt = f"""
 {system_prompt}
 
-请严格按照以下格式回复，不要添加任何其他文本 | Please respond in exactly this format with no other text:
+请严格按照以下格式回复，不要添加任何其他文本或解释 | Please respond in exactly this format with no other text or explanation:
 
 {{
     "direction": "buy",
@@ -69,7 +69,10 @@ class OllamaModel(BaseModel):
     "slippage_bps": 200
 }}
 
-{user_content}"""
+用户输入 | User input:
+{user_content}
+
+仅返回JSON | Return JSON only"""
             data = {
                 "model": self.model_name,
                 "prompt": formatted_prompt,
@@ -92,28 +95,31 @@ class OllamaModel(BaseModel):
             
             # Clean up and parse JSON from full response
             try:
-                # Extract JSON from code blocks or raw response
+                # Extract JSON from response
                 content = full_response.strip()
-                json_str = ""
                 
-                # Try to find JSON in code blocks first
-                if "```json" in content:
-                    parts = content.split("```json")
-                    if len(parts) > 1:
-                        json_block = parts[1].split("```")[0].strip()
-                        try:
-                            # Clean up the JSON block
-                            json_block = re.sub(r'[^\x00-\x7F]+', '', json_block)  # Remove non-ASCII chars
-                            json_block = re.sub(r'(?<!["{\s,])\s*:\s*(?![\s,}"])', '": "', json_block)  # Fix missing quotes
-                            json_block = re.sub(r'(?<=[}\]"])\s*(?=,)', '', json_block)  # Fix spacing
-                            json_block = re.sub(r'"\s*,\s*}', '"}', json_block)  # Fix trailing commas
-                            parsed_content = json.loads(json_block)
-                            return ModelResponse(
-                                content=json.dumps(parsed_content),
-                                raw_response={'response': full_response}
-                            )
-                        except json.JSONDecodeError:
-                            pass
+                # Find JSON content (everything between first { and last })
+                start_idx = content.find('{')
+                end_idx = content.rfind('}')
+                
+                if start_idx >= 0 and end_idx > start_idx:
+                    json_str = content[start_idx:end_idx + 1]
+                    # Clean up the JSON string
+                    json_str = re.sub(r'[^\x00-\x7F]+', '', json_str)  # Remove non-ASCII chars
+                    json_str = re.sub(r'(?<!["{\s,])\s*:\s*(?![\s,}"])', '": "', json_str)  # Fix missing quotes
+                    json_str = re.sub(r'(?<=[}\]"])\s*(?=,)', '', json_str)  # Fix spacing
+                    json_str = re.sub(r'(?<=[{\s,])"?(\d+(?:\.\d+)?)"?(?=\s*[,}])', r'\1', json_str)  # Fix quoted numbers
+                    json_str = re.sub(r'"\s*,\s*}', '"}', json_str)  # Fix trailing commas
+                    
+                    try:
+                        parsed_content = json.loads(json_str)
+                        return ModelResponse(
+                            content=json.dumps(parsed_content),
+                            raw_response={'response': full_response}
+                        )
+                    except json.JSONDecodeError as e:
+                        print(f"Error parsing JSON: {e}")
+                        pass
                 
                 # Try to find raw JSON if no code blocks or invalid JSON in code blocks
                 content = content.replace('```json', '').replace('```', '').strip()
@@ -201,22 +207,16 @@ class OllamaModel(BaseModel):
             # Determine direction
             direction = 'buy' if ('买入' in instruction or 'buy' in instruction.lower()) else 'sell'
             
-            # Extract amount using string operations
-            numbers = []
-            for word in instruction.split():
-                try:
-                    # Remove any non-numeric characters except decimal point and negative sign
-                    cleaned = ''.join(c for c in word if c.isdigit() or c in '.-')
-                    if cleaned:
-                        num = float(cleaned)
-                        if num != 0:  # Only append non-zero numbers
-                            numbers.append(num)
-                except ValueError:
-                    continue
+            # Extract amount using regex
+            amount_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:个|tokens?|SOL)', instruction)
+            amount = float(amount_match.group(1)) if amount_match else DEFAULT_AMOUNT
             
-            # Get the largest positive number as amount
-            positive_numbers = [n for n in numbers if n > 0]
-            amount = max(positive_numbers) if positive_numbers else DEFAULT_AMOUNT
+            # Validate amount
+            if amount <= 0:
+                return {
+                    'error': 'Invalid amount',
+                    'error_cn': '金额无效'
+                }
             
             # Extract slippage using string operations
             slippage = DEFAULT_SLIPPAGE_BPS
@@ -308,4 +308,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }                                                                                                                                          
+            }                                                                                                                                                      
