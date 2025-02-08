@@ -5,10 +5,12 @@ Lumix DeepSeek Model Implementation
 import os
 import json
 import time
+import asyncio
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from termcolor import cprint
 from .base_model import BaseModel, ModelResponse
+from src.data.jupiter_client import JupiterClient
 
 class DialogueContext:
     """Maintains dialogue history and context for trading conversations"""
@@ -61,6 +63,8 @@ class DeepSeekModel(BaseModel):
         self.base_url = base_url
         self.client = None
         self.context = DialogueContext()
+        self.jupiter_client = JupiterClient()
+        self.sol_token = "So11111111111111111111111111111111111111112"
         print("✨ Initializing DeepSeek model via ollama...")
         print(f"Using model: {self.model_name}")
         super().__init__()
@@ -183,6 +187,50 @@ Assistant:"""
         """Check if DeepSeek is available"""
         return self.client is not None
     
+    async def get_market_context(self, token: str) -> dict:
+        """Get real-time market data for dialogue context"""
+        retries = 3
+        base_delay = 1.0  # 1 second base delay
+        
+        for attempt in range(retries):
+            try:
+                # Get quote with optimized parameters
+                quote = await self.jupiter_client.get_quote(
+                    input_mint=token,
+                    output_mint=self.sol_token,
+                    amount="1000000000",  # 1 unit in smallest denomination
+                    use_shared_accounts=True,
+                    force_simpler_route=True
+                )
+                
+                if not quote:
+                    raise Exception("Failed to get quote")
+                    
+                market_data = {
+                    "price": float(quote.get('outAmount', 0)) / 1e9,
+                    "timestamp": time.time(),
+                    "market_state": "active",
+                    "slippage": quote.get('slippageBps', 250),
+                    "route_info": quote.get('routeInfo', {}),
+                    "market_impact": quote.get('priceImpactPct', 0)
+                }
+                
+                # Update context with market data
+                self.context.update_market_data(token, market_data)
+                return market_data
+                
+            except Exception as e:
+                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                if attempt < retries - 1:
+                    print(f"Retrying market data fetch in {delay}s... ({str(e)})")
+                    await asyncio.sleep(delay)
+                else:
+                    return {
+                        "error": str(e),
+                        "timestamp": time.time(),
+                        "market_state": "error"
+                    }
+
     @property
     def model_type(self) -> str:
         return "deepseek"
@@ -242,4 +290,4 @@ Assistant:"""
             return {
                 'error': 'Failed to parse trade instruction',
                 'raw_response': response.content
-            }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+            }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
