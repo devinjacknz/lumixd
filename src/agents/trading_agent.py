@@ -172,7 +172,7 @@ class TradingAgent:
                 'slippage_bps': self.slippage,
                 'direction': 'sell'  # Partial positions are for selling
             }
-            signature = self.execute_trade(trade_request)
+            signature = await self.execute_trade(trade_request)
             
             if signature:
                 # Update position tracking
@@ -241,12 +241,12 @@ class TradingAgent:
     async def get_token_price(self, token: str) -> float:
         """Get token price in SOL using Jupiter"""
         try:
-            quote = self.jupiter_client.get_quote(
+            quote = await self.jupiter_client.get_quote(
                 input_mint=token,
-                output_mint=self.jupiter_client.sol_token,
+                output_mint=self.sol_token,
                 amount="1000000000"  # 1 unit in smallest denomination
             )
-            if not quote:
+            if not quote or not isinstance(quote, dict):
                 return 0.0
             return float(quote.get('outAmount', 0)) / 1e9
         except Exception as e:
