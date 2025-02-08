@@ -21,14 +21,18 @@ class InstanceManager:
             instance_id = f"instance_{self.next_id}"
             self.next_id += 1
             
+            # Convert Decimal values to float
+            amount_sol = float(config['amount_sol']) if isinstance(config['amount_sol'], (Decimal, str)) else config['amount_sol']
+            
+            # Create instance with proper configuration
             instance = TradingInstance(
                 id=instance_id,
-                name=config['name'],
-                description=config.get('description', ''),
-                strategy_id=config.get('strategy_id', 'default'),
-                tokens=config['tokens'],
-                amount_sol=float(config['amount_sol']),
-                parameters=config.get('parameters', {}),
+                name=str(config['name']),
+                description=str(config.get('description', '')),
+                strategy_id=str(config.get('strategy_id', 'default')),
+                tokens=list(config['tokens']),
+                amount_sol=amount_sol,
+                parameters=dict(config.get('parameters', {})),
                 active=True,
                 metrics=InstanceMetrics()
             )
