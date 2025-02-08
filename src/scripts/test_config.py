@@ -52,7 +52,7 @@ TEST_CONFIG = {
     'token_addresses': {
         'SOL': 'So11111111111111111111111111111111111111112',
         'AI16z': 'HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC',
-        'SWARM': 'GHoewwgqzpyr4honfYZXDjWVqEQf4UVnNkbzqpqzwxPr'
+        'SWARM': '74SBV4zDXxTRgv1pEMoECskKBkZHc2yGPnc7GYVepump'
     },
     'log_dir': str(Path('logs/performance')),
     'rpc_endpoint': os.getenv('RPC_ENDPOINT'),

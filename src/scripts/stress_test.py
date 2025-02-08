@@ -27,13 +27,35 @@ async def run_stress_test():
     cprint(f"⌛ Trade interval: {TEST_CONFIG['trade_interval_seconds']}s", "cyan")
     
     # Initialize instances
+    instance_ids = []
     for instance_config in TEST_CONFIG['instances']:
-        instance_id = await instance_manager.create_instance(instance_config)
-        if not instance_id:
-            cprint(f"❌ Failed to create instance: {instance_config['name']}", "red")
-            continue
+        try:
+            # Convert Decimal values to float for JSON serialization
+            config = {
+                'name': instance_config['name'],
+                'description': f"Trading instance for {instance_config['tokens'][0]}/{instance_config['tokens'][1]} pair",
+                'strategy_id': 'default',
+                'tokens': instance_config['tokens'],
+                'amount_sol': float(instance_config['amount_sol']),
+                'parameters': {
+                    'allocation': float(instance_config['allocation']),
+                    'slippage_bps': 250,
+                    'max_position_size': 0.2,
+                    'use_shared_accounts': True,
+                    'force_simpler_route': True
+                }
+            }
             
-        cprint(f"✅ Created instance: {instance_config['name']} ({instance_id})", "green")
+            instance_id = instance_manager.create_instance(config)
+            if not instance_id:
+                cprint(f"❌ Failed to create instance: {config['name']}", "red")
+                continue
+                
+            instance_ids.append(instance_id)
+            cprint(f"✅ Created instance: {config['name']} ({instance_id})", "green")
+        except Exception as e:
+            cprint(f"❌ Error creating instance: {str(e)}", "red")
+            continue
     
     last_trade_time = datetime.now() - timedelta(seconds=TEST_CONFIG['trade_interval_seconds'])
     
