@@ -74,6 +74,32 @@
         let currentStrategy = null;
         let walletConnected = false;
         
+        // Connect to FastAPI backend
+        const BACKEND_URL = window.location.origin.includes('localhost') 
+            ? 'http://localhost:8000' 
+            : 'https://pr-playbook-app-rdg79ce5.devinapps.com';
+            
+        // Initialize error tracking
+        window.onerror = function(msg, url, line, col, error) {
+            fetch(`${BACKEND_URL}/api/v1/log`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-User-ID': 'anonymous'
+                },
+                body: JSON.stringify({
+                    type: 'error',
+                    message: msg,
+                    url: url,
+                    line: line,
+                    col: col,
+                    error: error?.toString(),
+                    timestamp: new Date().toISOString()
+                })
+            }).catch(console.error);
+            return false;
+        };
+        
         async function sendMessage() {
             const input = document.getElementById('userInput');
             const message = input.value.trim();
@@ -83,22 +109,41 @@
             input.value = '';
             
             try {
-                const response = await fetch('/api/chat', {
+                appendMessage('user', message);
+                input.value = '';
+                
+                const response = await fetch(`${BACKEND_URL}/api/v1/chat`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-User-ID': 'anonymous',
                         'X-Wallet-Connected': walletConnected.toString()
                     },
-                    body: JSON.stringify({ message })
+                    body: JSON.stringify({ 
+                        instruction: message,
+                        wallet_connected: walletConnected,
+                        timestamp: new Date().toISOString()
+                    })
                 });
                 
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const result = await response.json();
+                
+                if (result.error) {
+                    throw new Error(result.error);
+                }
                 
                 if (result.status === 'success') {
                     appendMessage('system', result.response);
                     
-                    if (result.requires_confirmation) {
+                    if (result.requires_confirmation && result.strategy) {
                         showConfirmation(result.strategy);
+                    } else if (result.error) {
+                        appendMessage('error', `错误 | Error: ${result.error}`);
                     }
                 } else {
                     appendMessage('error', result.message);
@@ -138,7 +183,7 @@
             }
             
             try {
-                const response = await fetch('/api/execute_trade', {
+                const response = await fetch(`${BACKEND_URL}/api/execute_trade`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

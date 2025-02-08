@@ -47,6 +47,14 @@ app.include_router(monitor.router, prefix="/api/v1/monitor", tags=["monitor"])
 app.include_router(instances.router, prefix="/api/v1/instances", tags=["instances"])
 app.include_router(websocket_router, tags=["websocket"])
 
+# Import and register chat routes
+from src.api.v1.routes import chat
+app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
+
+# Import and register chat routes
+from src.api.v1.routes import chat
+app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
+
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "Lumix Trading API is running"}
