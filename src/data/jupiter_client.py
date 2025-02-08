@@ -103,23 +103,22 @@ class JupiterClient:
             cprint(f"🔄 Requesting swap with optimized parameters", "cyan")
             
             async with aiohttp.ClientSession() as session:
-                # Get swap transaction with minimal parameters
+                # Get swap transaction
                 async with session.post(
-                    f"{self.base_url}/swap",
+                    f"{self.base_url}/v6/swap",
                     headers=self.headers,
                     json={
                         "quoteResponse": quote_response,
                         "userPublicKey": wallet_pubkey,
-                        "wrapAndUnwrapSol": True,
-                        "useSharedAccounts": True,
-                        "feeAccount": wallet_pubkey,
                         "computeUnitPriceMicroLamports": 1000,
                         "asLegacyTransaction": True,
-                        "useTokenLedger": True,
-                        "destinationTokenAccount": None,
-                        "dynamicComputeUnitLimit": True,
-                        "prioritizationFeeLamports": 10000,
-                        "skipUserAccountsCheck": True
+                        "wrapUnwrapSOL": True,
+                        "useSharedAccounts": True,
+                        "computeUnitLimit": 1400000,
+                        "skipUserAccountsCheck": True,
+                        "minContextSlot": quote_response.get("contextSlot"),
+                        "maxAccounts": 64,
+                        "prioritizationFeeLamports": 10000
                     },
                     timeout=60
                 ) as response:
