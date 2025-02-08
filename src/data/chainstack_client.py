@@ -17,10 +17,23 @@ class ChainStackClient:
         if not base_url:
             raise ValueError("RPC_ENDPOINT environment variable is required")
         self.base_url = str(base_url)
-        self.ws_url = self.base_url.replace("https://", "wss://")
-        self.headers = {"Content-Type": "application/json"}
+        self.ws_url = os.getenv("CHAINSTACK_WS_ENDPOINT", "").strip()
+        if not self.ws_url:
+            self.ws_url = self.base_url.replace("https://", "wss://")
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": os.getenv("CHAINSTACK_API_KEY", "")
+        }
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests (Developer plan)
+        
+        # Load Chainstack configuration
+        from src.config.settings import TRADING_CONFIG
+        self.config = TRADING_CONFIG["chainstack"]
+        self.retry_attempts = self.config["retry_attempts"]
+        self.timeout = self.config["timeout"]
+        self.batch_size = self.config["batch_size"]
+        self.cache_duration = self.config["cache_duration"]
         
     def _rate_limit(self):
         current_time = time.time()
@@ -29,10 +42,11 @@ class ChainStackClient:
             time.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    def _post_rpc(self, method: str, params: list) -> dict:
+    async def _post_rpc(self, method: str, params: list, retry_count: int = 0) -> dict:
         self._rate_limit()
         try:
-            response = requests.post(
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: requests.post(
                 self.base_url,
                 headers=self.headers,
                 json={
@@ -40,27 +54,80 @@ class ChainStackClient:
                     "id": method,
                     "method": method,
                     "params": params
-                }
-            )
+                },
+                timeout=self.timeout
+            ))
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            cprint(f"✨ Failed RPC call to {method}: {str(e)}", "red")
+            if retry_count < self.retry_attempts:
+                cprint(f"⚠️ RPC call failed, retrying {retry_count + 1}/{self.retry_attempts}...", "yellow")
+                await asyncio.sleep(2 ** retry_count)  # Exponential backoff
+                return await self._post_rpc(method, params, retry_count + 1)
+            cprint(f"❌ Failed RPC call to {method}: {str(e)}", "red")
             return {}
             
-    def get_token_price(self, token_address: str) -> float:
-        response = self._post_rpc("getTokenLargestAccounts", [token_address])
+    async def _batch_rpc(self, requests: list) -> list:
+        """Execute multiple RPC requests in a batch"""
+        self._rate_limit()
+        try:
+            batch_requests = []
+            for i in range(0, len(requests), self.batch_size):
+                batch = requests[i:i + self.batch_size]
+                batch_requests.append(
+                    asyncio.create_task(
+                        self._post_rpc(
+                            method=batch[0]["method"],
+                            params=batch[0]["params"]
+                        )
+                    )
+                )
+            
+            responses = []
+            for response in asyncio.as_completed(batch_requests):
+                result = await response
+                result.raise_for_status()
+                responses.extend(result.json())
+            return responses
+        except Exception as e:
+            cprint(f"❌ Batch RPC call failed: {str(e)}", "red")
+            return []
+            
+    async def get_token_price(self, token_address: str) -> float:
+        response = await self._post_rpc("getTokenLargestAccounts", [token_address])
         if "result" in response and "value" in response["result"]:
             largest_account = response["result"]["value"][0]
             return float(largest_account["amount"]) / 1e9
         return 0.0
             
-    def get_wallet_balance(self, wallet_address: str) -> float:
+    async def get_token_balance(self, token_address: str, wallet_address: str) -> float:
+        """Get token balance for a specific wallet"""
+        try:
+            response = await self._post_rpc(
+                "getTokenAccountsByOwner",
+                [
+                    wallet_address,
+                    {"mint": token_address},
+                    {"encoding": "jsonParsed"}
+                ]
+            )
+            if "result" in response and "value" in response["result"]:
+                for account in response["result"]["value"]:
+                    if "parsed" in account["account"]["data"]:
+                        data = account["account"]["data"]["parsed"]["info"]
+                        if data["mint"] == token_address:
+                            return float(data["tokenAmount"]["amount"]) / (10 ** data["tokenAmount"]["decimals"])
+            return 0.0
+        except Exception as e:
+            cprint(f"❌ Error getting token balance: {str(e)}", "red")
+            return 0.0
+            
+    async def get_wallet_balance(self, wallet_address: str) -> float:
         try:
             if not wallet_address:
                 cprint("❌ Invalid wallet address", "red")
                 return 0.0
-            response = self._post_rpc("getBalance", [wallet_address])
+            response = await self._post_rpc("getBalance", [wallet_address])
             if "result" in response:
                 balance = float(response["result"]["value"]) / 1e9
                 cprint(f"✅ SOL Balance: {balance:.6f}", "green")
@@ -71,35 +138,43 @@ class ChainStackClient:
             cprint(f"❌ Error getting wallet balance: {str(e)}", "red")
             return 0.0
 
-    def get_token_data(self, token_address: str, days_back: int = 3, timeframe: str = '1H') -> pd.DataFrame:
-        response = self._post_rpc("getTokenLargestAccounts", [token_address])
+    async def get_token_data(self, token_address: str, days_back: int = 3, timeframe: str = '1H') -> Dict:
+        """Get token market data in a JSON-serializable format"""
+        response = await self._post_rpc("getTokenLargestAccounts", [token_address])
         if "result" not in response or "value" not in response["result"]:
-            return pd.DataFrame()
+            return {
+                "price": 0,
+                "volume": 0,
+                "market_data": []
+            }
             
         largest_account = response["result"]["value"][0]
         current_price = float(largest_account["amount"]) / 1e9
         volume = current_price * 0.1
         
         now = datetime.now()
-        df = pd.DataFrame({
-            'Datetime (UTC)': [now.strftime('%Y-%m-%d %H:%M:%S')],
-            'Open': [current_price],
-            'High': [current_price],
-            'Low': [current_price],
-            'Close': [current_price],
-            'Volume': [volume]
-        })
+        timestamp = now.strftime('%Y-%m-%d %H:%M:%S')
         
-        if len(df) >= 20:
-            df['MA20'] = df['Close'].rolling(window=20).mean()
-            df['RSI'] = self._calculate_rsi(df['Close'])
-        if len(df) >= 40:
-            df['MA40'] = df['Close'].rolling(window=40).mean()
-            df['Price_above_MA20'] = df['Close'] > df['MA20']
-            df['Price_above_MA40'] = df['Close'] > df['MA40']
-            df['MA20_above_MA40'] = df['MA20'] > df['MA40']
-            
-        return df
+        # Create market data in a serializable format
+        market_data = {
+            "price": current_price,
+            "volume": volume,
+            "market_data": [{
+                "timestamp": timestamp,
+                "open": current_price,
+                "high": current_price,
+                "low": current_price,
+                "close": current_price,
+                "volume": volume
+            }],
+            "indicators": {
+                "ma20": current_price,  # Simplified for single data point
+                "ma40": current_price,
+                "rsi": 50  # Default RSI value
+            }
+        }
+        
+        return market_data
             
     def _calculate_rsi(self, prices: pd.Series, periods: int = 14) -> pd.Series:
         deltas = prices.diff()
@@ -108,20 +183,20 @@ class ChainStackClient:
         rs = gain / loss
         return 100 - (100 / (1 + rs))
         
-    def get_token_metadata(self, address: str) -> dict:
-        response = self._post_rpc("getAccountInfo", [address, {"encoding": "jsonParsed"}])
+    async def get_token_metadata(self, address: str) -> dict:
+        response = await self._post_rpc("getAccountInfo", [address, {"encoding": "jsonParsed"}])
         return response.get("result", {}).get("value", {})
         
-    def get_token_holders(self, address: str) -> list:
-        response = self._post_rpc("getTokenLargestAccounts", [address])
+    async def get_token_holders(self, address: str) -> list:
+        response = await self._post_rpc("getTokenLargestAccounts", [address])
         return response.get("result", {}).get("value", [])
         
-    def get_token_supply(self, address: str) -> dict:
-        response = self._post_rpc("getTokenSupply", [address])
+    async def get_token_supply(self, address: str) -> dict:
+        response = await self._post_rpc("getTokenSupply", [address])
         return response.get("result", {}).get("value", {})
         
-    def get_signatures_for_address(self, address: str, limit: int = 1) -> list:
-        response = self._post_rpc("getSignaturesForAddress", [address, {"limit": limit}])
+    async def get_signatures_for_address(self, address: str, limit: int = 1) -> list:
+        response = await self._post_rpc("getSignaturesForAddress", [address, {"limit": limit}])
         return response.get("result", [])
 
     async def subscribe_token_updates(self, token_address: str, callback) -> None:

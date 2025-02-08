@@ -37,7 +37,11 @@ class InstanceManager:
                 metrics=InstanceMetrics()
             )
             
-            self.agents[instance_id] = TradingAgent(instance_id, config)
+            self.agents[instance_id] = TradingAgent(
+                instance_id=instance_id,
+                model_type=str(config.get('model_type', 'deepseek')),
+                model_name=str(config.get('model_name', 'deepseek-r1:1.5b'))
+            )
             self.agents[instance_id].update_config(config.get('parameters', {}))
             self.instances[instance_id] = instance
             
@@ -47,13 +51,7 @@ class InstanceManager:
             cprint(f"❌ Failed to create instance: {str(e)}", "red")
             return None
             
-    def get_instance(self, instance_id: str) -> Optional[TradingInstance]:
-        return self.instances.get(instance_id)
-        
-    def list_instances(self) -> List[str]:
-        return list(self.instances.keys())
-        
-    def get_instance_metrics(self, instance_id: str) -> Dict[str, Any]:
+    async def get_instance_metrics(self, instance_id: str) -> Dict[str, Any]:
         instance = self.instances.get(instance_id)
         agent = self.agents.get(instance_id)
         if not instance or not agent:
@@ -65,7 +63,7 @@ class InstanceManager:
             'performance': self.performance_monitor.get_summary()
         }
         
-    def update_instance_metrics(self, instance_id: str, metrics: Dict[str, Any]) -> bool:
+    async def update_instance_metrics(self, instance_id: str, metrics: Dict[str, Any]) -> bool:
         instance = self.instances.get(instance_id)
         agent = self.agents.get(instance_id)
         if not instance or not agent:
@@ -117,23 +115,23 @@ class InstanceManager:
             return None
 
             
-    def get_instance(self, instance_id: str) -> Optional[TradingInstance]:
+    def get_instance_by_id(self, instance_id: str) -> Optional[TradingInstance]:
         return self.instances.get(instance_id)
         
-    def get_agent(self, instance_id: str) -> Optional[TradingAgent]:
+    def get_agent_by_id(self, instance_id: str) -> Optional[TradingAgent]:
         return self.agents.get(instance_id)
         
-    def list_instances(self) -> List[TradingInstance]:
+    def get_all_instances(self) -> List[TradingInstance]:
         return list(self.instances.values())
         
-    def update_instance(self, instance_id: str, instance: TradingInstance) -> bool:
+    async def update_instance(self, instance_id: str, instance: TradingInstance) -> bool:
         try:
             if instance_id not in self.instances:
                 return False
             self.instances[instance_id] = instance
             self.agents[instance_id].update_config(instance.parameters)
             if instance.strategy_id:
-                self.agents[instance_id].apply_strategy(
+                await self.agents[instance_id].apply_strategy(
                     instance.strategy_id,
                     instance.parameters.get('strategy_params', {})
                 )
@@ -142,7 +140,7 @@ class InstanceManager:
             cprint(f"❌ Error updating instance: {str(e)}", "red")
             return False
             
-    def delete_instance(self, instance_id: str) -> bool:
+    async def delete_instance(self, instance_id: str) -> bool:
         try:
             if instance_id not in self.instances:
                 return False
@@ -155,41 +153,26 @@ class InstanceManager:
             cprint(f"❌ Error deleting instance: {str(e)}", "red")
             return False
             
-    def get_instance_metrics(self, instance_id: str) -> Optional[Dict]:
-        try:
-            if instance_id not in self.agents:
-                return None
-            agent = self.agents[instance_id]
-            instance = self.instances[instance_id]
-            metrics = agent.get_instance_metrics()
-            metrics.update({
-                'health': self.system_monitor.check_system_health(),
-                'performance': self.performance_monitor.get_summary()
-            })
-            return metrics
-        except Exception as e:
-            cprint(f"❌ Error getting metrics: {str(e)}", "red")
-            return None
-            
-    def start_instance(self, instance_id: str) -> bool:
+    async def start_instance(self, instance_id: str) -> bool:
         try:
             if instance_id not in self.instances:
                 return False
             agent = self.agents[instance_id]
             instance = self.instances[instance_id]
             agent.active = True
-            agent.run(instance.parameters)
+            await agent.run(instance.parameters)
             return True
         except Exception as e:
             cprint(f"❌ Error starting instance: {str(e)}", "red")
             return False
             
-    def stop_instance(self, instance_id: str) -> bool:
+    async def stop_instance(self, instance_id: str) -> bool:
         try:
             if instance_id not in self.instances:
                 return False
             agent = self.agents[instance_id]
             agent.active = False
+            await agent.stop()
             return True
         except Exception as e:
             cprint(f"❌ Error stopping instance: {str(e)}", "red")

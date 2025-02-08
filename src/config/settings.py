@@ -6,7 +6,10 @@ TRADING_CONFIG: Dict[str, Any] = {
     "tokens": {
         "AI16Z": "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC",
         "SWARM": "GHoewwgqzpyr4honfYZXDjWVqEQf4UVnNkbzqpqzwxPr",
-        "SOL": "So11111111111111111111111111111111111111112"
+        "SOL": "So11111111111111111111111111111111111111112",
+        "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "BONK": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "JUP": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
     },
     "trade_parameters": {
         "amount_sol": 0.001,  # 0.001 SOL per trade
@@ -26,6 +29,14 @@ TRADING_CONFIG: Dict[str, Any] = {
     "rpc_endpoints": {
         "primary": None,  # Set via RPC_ENDPOINT environment variable
         "fallback": "https://api.mainnet-beta.solana.com"
+    },
+    "chainstack": {
+        "use_enhanced_rpc": True,
+        "websocket_enabled": True,
+        "cache_duration": 300,
+        "retry_attempts": 3,
+        "timeout": 30,
+        "batch_size": 100
     },
     "monitoring": {
         "min_sol_balance": 0.05,  # Minimum SOL balance
