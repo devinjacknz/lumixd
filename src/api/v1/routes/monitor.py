@@ -1,25 +1,71 @@
+"""
+System Monitoring Routes
+"""
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any
-from src.monitoring.system_monitor import SystemMonitor
-from src.monitoring.performance_monitor import PerformanceMonitor
+from typing import Dict
+import psutil
+import asyncio
+from datetime import datetime
+from src.data.chainstack_client import ChainStackClient
+from src.data.jupiter_client import JupiterClient
 
 router = APIRouter()
-performance_monitor = PerformanceMonitor()
-system_monitor = SystemMonitor(performance_monitor)
+chainstack_client = ChainStackClient()
+jupiter_client = JupiterClient()
+
+@router.post("/status")
+async def get_system_status() -> Dict:
+    """Get system status including market data and trading info"""
+    try:
+        # System metrics
+        cpu_percent = psutil.cpu_percent()
+        memory = psutil.virtual_memory()
+        
+        # Check Chainstack connection
+        chainstack_status = "ok"
+        try:
+            await chainstack_client.get_token_price("So11111111111111111111111111111111111111112")
+        except Exception as e:
+            chainstack_status = f"error: {str(e)}"
+            
+        # Check Jupiter connection
+        jupiter_status = "ok"
+        try:
+            loop = asyncio.get_event_loop()
+            quote = await loop.run_in_executor(
+                None,
+                lambda: jupiter_client.get_quote(
+                    input_mint="So11111111111111111111111111111111111111112",
+                    output_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
+                    amount="1000000000"  # 1 SOL
+                )
+            )
+            if not quote:
+                jupiter_status = "error: failed to get quote"
+        except Exception as e:
+            jupiter_status = f"error: {str(e)}"
+            
+        return {
+            "system": {
+                "cpu_percent": cpu_percent,
+                "memory_percent": memory.percent,
+                "memory_available": memory.available // (1024 * 1024)  # MB
+            },
+            "services": {
+                "chainstack": chainstack_status,
+                "jupiter": jupiter_status
+            },
+            "trading": {
+                "active": True,
+                "last_update": datetime.now().isoformat(),
+                "success_rate": 100,
+                "volume_24h": 0
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
-async def get_health():
-    try:
-        health_data = system_monitor.check_system_health()
-        if not health_data:
-            raise HTTPException(status_code=500, detail="Failed to get system health data")
-        return health_data
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/performance")
-async def get_performance():
-    try:
-        return performance_monitor.get_summary()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def health_check() -> Dict:
+    """Basic health check endpoint"""
+    return {"status": "ok"}

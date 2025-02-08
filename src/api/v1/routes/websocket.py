@@ -1,12 +1,14 @@
 """
 WebSocket Route for Real-time Trading and Market Data
 """
+import os
 import json
 from typing import Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from src.data.chainstack_client import ChainStackClient
 from src.modules.nlp_processor import NLPProcessor
 from src.data.jupiter_client import JupiterClient
+from solders.pubkey import Pubkey
 
 router = APIRouter()
 
@@ -75,16 +77,40 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str = None):
                     # Execute trade if parsing successful
                     if "error" not in parsed:
                         params = parsed["parsed_params"]
-                        result = await manager.jupiter_client.execute_swap(
-                            input_token=params["token_symbol"],
-                            amount=params["amount"],
-                            slippage=params.get("slippage", 1.0)
+                        # Get quote first
+                        quote = await manager.jupiter_client.get_quote(
+                            input_mint=params["token_address"],
+                            output_mint=manager.jupiter_client.sol_token,
+                            amount=str(int(params["amount"] * 1e9))  # Convert to lamports
                         )
-                        await websocket.send_json({
-                            "type": "trade_executed",
-                            "status": "success" if result else "failed",
-                            "transaction_hash": result.get("signature") if result else None
-                        })
+                        
+                        if quote:
+                            # Execute swap with quote
+                            private_key = os.getenv("SOLANA_PRIVATE_KEY")
+                            if not private_key:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": "Wallet private key not configured"
+                                })
+                                continue
+                                
+                            try:
+                                # Create wallet pubkey from private key
+                                wallet_pubkey = str(Pubkey.from_bytes(bytes.fromhex(private_key)))
+                                result = await manager.jupiter_client.execute_swap(
+                                    quote_response=quote,
+                                    wallet_pubkey=wallet_pubkey
+                                )
+                                await websocket.send_json({
+                                    "type": "trade_executed",
+                                    "status": "success" if result else "failed",
+                                    "transaction_hash": result if result else None
+                                })
+                            except Exception as e:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": f"Failed to execute trade: {str(e)}"
+                                })
                         
                 elif message_type == "ping":
                     await websocket.send_json({"type": "pong"})

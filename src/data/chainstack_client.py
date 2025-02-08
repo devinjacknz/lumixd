@@ -62,8 +62,8 @@ class ChainStackClient:
         except Exception as e:
             if retry_count < self.retry_attempts:
                 cprint(f"⚠️ RPC call failed, retrying {retry_count + 1}/{self.retry_attempts}...", "yellow")
-                time.sleep(2 ** retry_count)  # Exponential backoff
-                return self._post_rpc(method, params, retry_count + 1)
+                await asyncio.sleep(2 ** retry_count)  # Exponential backoff
+                return await self._post_rpc(method, params, retry_count + 1)
             cprint(f"❌ Failed RPC call to {method}: {str(e)}", "red")
             return {}
             
