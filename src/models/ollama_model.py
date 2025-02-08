@@ -54,11 +54,13 @@ class OllamaModel(BaseModel):
             formatted_prompt = f"""
 {system_prompt}
 
-请用JSON格式回复。确保回复以 '{{' 开始，以 '}}' 结束。
-Please respond in JSON format. Ensure the response starts with '{{' and ends with '}}'.
+请用JSON格式回复。确保回复以 '{{' 开始，以 '}}' 结束。不要添加任何其他文本。
+Please respond in JSON format. Ensure the response starts with '{{' and ends with '}}'. Do not add any other text.
 
 {user_content}
-"""
+
+仅返回JSON格式的回复，不要添加任何其他文本。
+Return only the JSON response, do not add any other text."""
             data = {
                 "model": self.model_name,
                 "prompt": formatted_prompt,
@@ -104,8 +106,8 @@ Please respond in JSON format. Ensure the response starts with '{{' and ends wit
                 
             # Return raw response if JSON parsing fails
             return ModelResponse(
-                content=content,
-                raw_response=response.json()
+                content=full_response,
+                raw_response={'response': full_response}
             )
             
         except Exception as e:
@@ -222,4 +224,4 @@ You are a professional risk management assistant analyzing trade risks.
                 'error': 'Failed to parse response',
                 'error_cn': '无法解析响应',
                 'approved': False
-            }              
+            }                  
