@@ -53,39 +53,39 @@ async def test_jupiter_v6_trading():
     retry_mock.side_effect = [error_session, error_session, mock_session]  # Fail twice, succeed on third try
     
     # Test get_quote with retry mechanism
-    with patch('aiohttp.ClientSession.post', side_effect=[error_session, error_session, mock_session]):
+    with patch('aiohttp.ClientSession.post', side_effect=[error_session, error_session, mock_session]), \
+         patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:  # Mock sleep to avoid actual delays
         start_time = time.time()
         quote = await client.get_quote(
             input_mint="So11111111111111111111111111111111111111112",  # SOL
             output_mint="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",  # USDC
             amount="1000000000"  # 1 SOL
         )
-        end_time = time.time()
-        retry_duration = end_time - start_time
         
         # Verify retry mechanism
         assert quote is not None, "Quote should not be None"
         assert quote['inAmount'] == "1000000000", "Input amount should match"
         assert quote['slippageBps'] == 250, "Slippage should match"
-        assert retry_duration >= 2.0, "Should have exponential backoff delay"
+        assert mock_sleep.call_count == 2, "Should have retried twice with backoff"
+        assert mock_sleep.call_args_list[0][0][0] == 1.0, "First retry should wait 1s"
+        assert mock_sleep.call_args_list[1][0][0] == 2.0, "Second retry should wait 2s"
         print("✅ get_quote test passed with retry mechanism")
     
     # Test execute_swap with retry mechanism
     mock_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
     wallet_address = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
         
-    with patch('aiohttp.ClientSession.post', side_effect=[error_session, mock_session]):
-        start_time = time.time()
+    with patch('aiohttp.ClientSession.post', side_effect=[error_session, mock_session]), \
+         patch('asyncio.sleep', new=AsyncMock()) as mock_sleep:  # Mock sleep to avoid actual delays
         signature = await client.execute_swap(
             quote_response=MOCK_RESPONSES['quote'],
             wallet_pubkey=wallet_address
         )
-        end_time = time.time()
-        retry_duration = end_time - start_time
         
         # Verify retry mechanism
         assert signature is not None, "Signature should not be None"
-        assert retry_duration >= 1.0, "Should have exponential backoff delay"
+        assert mock_sleep.call_count == 1, "Should have retried once with backoff"
+        assert mock_sleep.call_args_list[0][0][0] == 1.0, "First retry should wait 1s"
         print("✅ execute_swap test passed with retry mechanism")
     
     # Test error handling
