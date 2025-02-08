@@ -74,14 +74,16 @@ class JupiterClient:
             while retry_count < max_retries:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, params=params) as response:
-                        quote = await response.json()
                         if response.status == 200:
+                            quote = await response.json()
                             cprint(f"✅ Got quote: {json.dumps(quote, indent=2)}", "green")
                             return quote
                         elif response.status >= 500:
                             response.raise_for_status()
-                        elif "error" in quote:
-                            cprint(f"⚠️ API error: {quote['error']}", "yellow")
+                        else:
+                            quote = await response.json()
+                            if "error" in quote:
+                                cprint(f"⚠️ API error: {quote['error']}", "yellow")
                         
                         retry_count += 1
                         if retry_count < max_retries:
