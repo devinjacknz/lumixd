@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana 交易系统 | Solana Trading System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { padding-top: 2rem; }
+        .trade-status { height: 300px; overflow-y: auto; }
+        .btn-execute { margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">Solana 交易系统 | Solana Trading System</h1>
+        
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">交易指令 | Trading Instructions</h5>
+                        <div class="form-group">
+                            <label for="instruction">输入交易指令 | Enter Trading Instruction:</label>
+                            <input type="text" class="form-control" id="instruction" 
+                                   placeholder="例如: 买入500个AI16z代币，滑点不超过2% | Example: Buy 500 AI16z tokens, max slippage 2%">
+                        </div>
+                        <button class="btn btn-primary btn-execute" onclick="executeTrade()">
+                            执行交易 | Execute Trade
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h5 class="card-title">交易状态 | Trade Status</h5>
+                        <div class="trade-status" id="tradeStatus"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function executeTrade() {
+            const instruction = document.getElementById('instruction').value;
+            if (!instruction) {
+                appendStatus('❌ 请输入交易指令 | Please enter trading instruction', 'text-danger');
+                return;
+            }
+            
+            appendStatus('🔄 执行中... | Executing...', 'text-info');
+            
+            try {
+                const baseUrl = window.location.origin;
+                const response = await fetch(`${baseUrl}/api/execute_trade`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-User-ID': 'anonymous'
+                    },
+                    body: JSON.stringify({ instruction })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('服务器返回了非JSON格式数据 | Server returned non-JSON data');
+                }
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    appendStatus(`✅ 交易成功 | Trade successful`, 'text-success');
+                    if (result.solscan_url) {
+                        appendStatus(`🔍 查看交易详情 | View transaction: <a href="${result.solscan_url}" target="_blank">${result.transaction}</a>`, 'text-info');
+                    }
+                } else {
+                    appendStatus(`❌ 交易失败 | Trade failed: ${result.message}`, 'text-danger');
+                }
+            } catch (error) {
+                appendStatus(`❌ 错误 | Error: ${error.message}`, 'text-danger');
+            }
+        }
+        
+        function appendStatus(message, className) {
+            const statusDiv = document.getElementById('tradeStatus');
+            const entry = document.createElement('div');
+            entry.className = `mb-2 ${className}`;
+            entry.innerHTML = `${new Date().toLocaleTimeString()} - ${message}`;
+            statusDiv.insertBefore(entry, statusDiv.firstChild);
+        }
+    </script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

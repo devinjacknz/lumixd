@@ -93,9 +93,9 @@ httpx.Client = patched_client
 from .base_agent import BaseAgent
 
 class SentimentAgent(BaseAgent):
-    def __init__(self):
+    def __init__(self, agent_type: str = 'sentiment', instance_id: str = 'main'):
         """Initialize the Sentiment Agent"""
-        super().__init__("sentiment")
+        super().__init__(agent_type=agent_type, instance_id=instance_id)
         self.tokenizer = None
         self.model = None
         self.audio_dir = Path("src/audio")
@@ -128,8 +128,8 @@ class SentimentAgent(BaseAgent):
             cprint(f"❌ Error loading sentiment model: {str(e)}", "red")
             raise
 
-    def analyze_sentiment(self, texts):
-        """Analyze sentiment of a batch of texts"""
+    def analyze_sentiment(self, texts, source: str = 'twitter', elapsed_minutes: float = 0.0):
+        """Multi-model sentiment analysis with time decay"""
         if not texts:
             return 0.0
             
@@ -145,22 +145,55 @@ class SentimentAgent(BaseAgent):
                 cprint("⚠️ Model initialization failed, returning neutral sentiment", "yellow")
                 return 0.0
                 
-            sentiments = []
-            batch_size = 8  # Process in small batches to avoid memory issues
+            from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+            vader = SentimentIntensityAnalyzer()
+            
+            batch_size = 32
+            bert_sentiments = []
+            vader_sentiments = []
             
             for i in range(0, len(texts), batch_size):
-                batch_texts = texts[i:i + batch_size]
-                inputs = self.tokenizer(batch_texts, padding=True, truncation=True, max_length=128, return_tensors="pt")
+                batch = texts[i:i + batch_size]
+                
+                # VADER Analysis
+                for text in batch:
+                    scores = vader.polarity_scores(text)
+                    vader_sentiments.append(scores['compound'])
+                
+                # BERT Analysis
+                inputs = self.tokenizer(
+                    batch,
+                    padding=True,
+                    truncation=True,
+                    max_length=128,
+                    return_tensors="pt"
+                )
                 
                 with torch.no_grad():
                     outputs = self.model(**inputs)
                     predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
-                    sentiments.extend(predictions.tolist())
-                    
-            return self._calculate_sentiment_scores(sentiments)
+                    bert_sentiments.extend(predictions.tolist())
+            
+            # Combine model predictions (70% BERT, 30% VADER)
+            bert_score = float(self._calculate_sentiment_scores(bert_sentiments))
+            vader_score = float(sum(vader_sentiments) / len(vader_sentiments))
+            raw_score = (0.7 * bert_score) + (0.3 * vader_score)
+            
+            return self.apply_sentiment_decay(raw_score, elapsed_minutes, source)
+            
         except Exception as e:
             cprint(f"❌ Error analyzing sentiment: {str(e)}", "red")
-            return 0.0  # Return neutral sentiment on error
+            return 0.0
+        
+    def apply_sentiment_decay(self, raw_score: float, elapsed_minutes: float, source: str) -> float:
+        """Apply time-based decay to sentiment scores"""
+        decay_rates = {
+            'twitter': 0.2,
+            'reddit': 0.15,
+            'news': 0.1
+        }
+        decay_rate = decay_rates.get(source, 0.2)  # Default to Twitter rate
+        return raw_score * np.exp(-decay_rate * elapsed_minutes)
         
     def _calculate_sentiment_scores(self, sentiments):
         """Convert sentiment predictions to scores"""
@@ -277,13 +310,13 @@ class SentimentAgent(BaseAgent):
             cprint(f"❌ Error calculating sentiment change: {str(e)}", "red")
             return None, None
 
-    def analyze_and_announce_sentiment(self, tweets):
+    async def analyze_and_announce_sentiment(self, tweets):
         """Analyze sentiment of tweets and announce results"""
         if not tweets:
             return
             
-        # Extract text from tweets
-        texts = [tweet.text for tweet in tweets]
+        # Extract and clean text from tweets
+        texts = [self.clean_tweet(tweet.text) for tweet in tweets]
         
         # Get sentiment score
         sentiment_score = self.analyze_sentiment(texts)
@@ -328,8 +361,16 @@ class SentimentAgent(BaseAgent):
         
         message += "."
         
-        # Announce with voice if sentiment is significant or if there's a big change
-        should_announce = bool(abs(sentiment_score) > SENTIMENT_ANNOUNCE_THRESHOLD or (percent_change is not None and abs(percent_change) > 5))
+        # Get market volatility from trading agent
+        from src.agents.trading_agent import TradingAgent
+        trading_agent = TradingAgent()
+        volatility = await trading_agent.calculate_volatility("SOL")  # Use SOL as market indicator
+        
+        # Calculate dynamic threshold
+        dynamic_threshold = self.calculate_dynamic_threshold(volatility)
+        
+        # Announce with voice if sentiment exceeds dynamic threshold or if there's a big change
+        should_announce = bool(abs(sentiment_score) > dynamic_threshold or (percent_change is not None and abs(percent_change) > 5))
         self._announce(message, should_announce)
         
         # If not announcing vocally, print the raw score for debugging
@@ -370,24 +411,34 @@ class SentimentAgent(BaseAgent):
             cprint(f"❌ Error getting tweets: {str(e)}", "red")
             return []
 
+    def clean_tweet(self, text: str) -> str:
+        """Clean tweet text"""
+        import re
+        text = re.sub(r'http\S+', '', text)  # Remove URLs
+        text = re.sub(r'@\w+', '', text)     # Remove @mentions
+        text = re.sub(r'#\w+', '', text)     # Remove hashtags
+        text = re.sub(r'\s+', ' ', text)     # Normalize whitespace
+        return text.strip()
+
     def save_tweets(self, tweets, token):
-        """Save tweets to CSV file using pandas, appending new ones and avoiding duplicates"""
+        """Save cleaned tweets to CSV"""
         filename = f"{DATA_FOLDER}/{token}_tweets.csv"
         
-        # Prepare new tweets data
         new_tweets_data = []
         for tweet in tweets:
             if not hasattr(tweet, 'id'):
                 continue
                 
             try:
+                cleaned_text = self.clean_tweet(tweet.text)
                 tweet_data = {
                     "collection_time": datetime.now().isoformat(),
                     "tweet_id": str(tweet.id),
                     "created_at": tweet.created_at,
                     "user_name": tweet.user.name,
                     "user_id": str(tweet.user.id),
-                    "text": tweet.text,
+                    "text": cleaned_text,
+                    "raw_text": tweet.text,
                     "retweet_count": tweet.retweet_count,
                     "favorite_count": tweet.favorite_count,
                     "reply_count": tweet.reply_count,
@@ -427,7 +478,7 @@ class SentimentAgent(BaseAgent):
         except Exception as e:
             cprint(f"❌ Error saving to CSV: {str(e)}", "red")
 
-    def run_async(self):
+    async def run_async(self):
         """Run sentiment analysis with Twitter integration"""
         cprint("Sentiment Analysis running...", "cyan")
         
@@ -436,33 +487,60 @@ class SentimentAgent(BaseAgent):
                 cprint(f"\n🔍 Analyzing sentiment for {token}...", "cyan")
                 tweets = self.get_tweets(token)
                 self.save_tweets(tweets, token)
-                self.analyze_and_announce_sentiment(tweets)
+                await self.analyze_and_announce_sentiment(tweets)
             except Exception as e:
                 cprint(f"❌ Error analyzing {token}: {str(e)}", "red")
                 
         cprint("Sentiment Analysis complete!", "green")
 
-    def run(self):
-        """Main function to run sentiment analysis (implements BaseAgent interface)"""
-        self.run_async()  # Run the async implementation while maintaining BaseAgent interface
+    def get_latest_sentiment_time(self) -> datetime:
+        """Get timestamp of latest sentiment data"""
+        try:
+            if not os.path.exists(SENTIMENT_HISTORY_FILE):
+                return datetime.min
+                
+            history_df = pd.read_csv(SENTIMENT_HISTORY_FILE)
+            if history_df.empty:
+                return datetime.min
+                
+            history_df['timestamp'] = pd.to_datetime(history_df['timestamp'], format='ISO8601')
+            return history_df['timestamp'].max()
+        except Exception as e:
+            cprint(f"Error getting sentiment time: {e}", "red")
+            return datetime.min
 
-if __name__ == "__main__":
-    try:
-        agent = SentimentAgent()
-        cprint(f"\nSentiment Agent starting (checking every {CHECK_INTERVAL_MINUTES} minutes)...", "cyan")
-        
-        while True:
-            try:
-                agent.run()
+    def calculate_dynamic_threshold(self, volatility: float) -> float:
+        """Calculate dynamic sentiment threshold based on market volatility"""
+        base = 0.6
+        adj = base * (1 + volatility/20)
+        return max(min(adj, 0.85), 0.4)  # Threshold range [0.4, 0.85]
+
+    async def run(self):
+        """Main function to run sentiment analysis (implements BaseAgent interface)"""
+        try:
+            while self.active:
+                await self.run_async()  # Run the async implementation
                 next_run = datetime.now() + timedelta(minutes=CHECK_INTERVAL_MINUTES)
                 cprint(f"\n😴 Next sentiment check at {next_run.strftime('%H:%M:%S')}", "cyan")
-                time.sleep(60 * CHECK_INTERVAL_MINUTES)
-            except KeyboardInterrupt:
-                raise
-            except Exception as e:
-                cprint(f"\n❌ Error in run loop: {str(e)}", "red")
-                time.sleep(60)  # Wait a minute before retrying
-                
+                await asyncio.sleep(60 * CHECK_INTERVAL_MINUTES)
+        except Exception as e:
+            cprint(f"\n❌ Error in sentiment agent: {str(e)}", "red")
+
+if __name__ == "__main__":
+    agent = SentimentAgent()
+    cprint(f"\nSentiment Agent starting (checking every {CHECK_INTERVAL_MINUTES} minutes)...", "cyan")
+    
+    async def main():
+        try:
+            await agent.run()
+        except KeyboardInterrupt:
+            cprint("\nSentiment Agent shutting down gracefully...", "yellow")
+        except Exception as e:
+            cprint(f"\n❌ Fatal error: {str(e)}", "red")
+            sys.exit(1)
+            
+    try:
+        asyncio.run(main())
     except KeyboardInterrupt:
         cprint("\nSentiment Agent shutting down gracefully...", "yellow")
     except Exception as e:

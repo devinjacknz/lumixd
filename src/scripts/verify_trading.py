@@ -1,94 +1,162 @@
 import time
-from datetime import datetime, timedelta
+import os
 import requests
+from datetime import datetime, timedelta
 from termcolor import cprint
-import pandas as pd
-from src.data.chainstack_client import ChainStackClient
+from src.data.jupiter_client import JupiterClient
+from src.agents.risk_agent import RiskAgent
 
-def verify_trading(duration_hours=2, wallet_address="4BKPzFyjBaRP3L1PNDf3xTerJmbbxxESmDmZJ2CZYdQ5"):
+
+# Token addresses
+AI16Z_TOKEN = "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC"
+SWARM_TOKEN = "GHoewwgqzpyr4honfYZXDjWVqEQf4UVnNkbzqpqzwxPr"  # Updated SWARM token address
+SOL_TOKEN = "So11111111111111111111111111111111111111112"
+
+# Trading parameters
+TRADE_AMOUNT_SOL = 0.0001
+TRADE_INTERVAL_SECONDS = 15 * 60  # 15 minutes
+VERIFICATION_DURATION_HOURS = 2
+
+def execute_trade(client: JupiterClient, risk_agent: RiskAgent, input_token: str, output_token: str, amount_lamports: int) -> bool:
+    try:
+        # Check risk limits first
+        if not risk_agent.check_risk_limits(amount_lamports / 1e9):
+            cprint("❌ Risk limits exceeded", "red")
+            return False
+            
+        # Check wallet balance
+        response = requests.post(
+            os.getenv("RPC_ENDPOINT"),
+            headers={"Content-Type": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": "get-balance",
+                "method": "getBalance",
+                "params": [os.getenv("WALLET_ADDRESS")]
+            }
+        )
+        response.raise_for_status()
+        balance = float(response.json().get("result", {}).get("value", 0)) / 1e9
+        
+        if balance < amount_lamports / 1e9 * 1.1:  # Add 10% buffer for fees
+            cprint(f"❌ Insufficient balance: {balance} SOL", "red")
+            return False
+            
+        # Add delay between trades
+        time.sleep(5)
+            
+        # Check wallet balance
+        response = requests.post(
+            os.getenv("RPC_ENDPOINT"),
+            headers={"Content-Type": "application/json"},
+            json={
+                "jsonrpc": "2.0",
+                "id": "get-balance",
+                "method": "getBalance",
+                "params": [os.getenv("WALLET_ADDRESS")]
+            }
+        )
+        response.raise_for_status()
+        balance = float(response.json().get("result", {}).get("value", 0)) / 1e9
+        
+        if balance < amount_lamports / 1e9 * 1.1:  # Add 10% buffer for fees
+            cprint(f"❌ Insufficient balance: {balance} SOL", "red")
+            return False
+            
+        # Get quote with optimized parameters
+        quote = client.get_quote(
+            input_token, 
+            output_token, 
+            str(amount_lamports),
+            use_shared_accounts=True,
+            force_simpler_route=True
+        )
+        if not quote:
+            cprint("❌ Failed to get quote", "red")
+            return False
+            
+        # Check if route is too complex
+        route_plan = quote.get("routePlan", [])
+        if len(route_plan) > 2:
+            cprint("⚠️ Route too complex, retrying with simpler route", "yellow")
+            quote = client.get_quote(
+                input_token,
+                output_token,
+                str(amount_lamports),
+                use_shared_accounts=True,
+                force_simpler_route=True
+            )
+        if not quote:
+            return False
+            
+        signature = client.execute_swap(
+            quote, 
+            os.getenv("WALLET_ADDRESS"),
+            use_shared_accounts=True
+        )
+        if not signature:
+            return False
+            
+        cprint(f"✅ Trade executed: {signature}", "green")
+        cprint(f"🔍 View on Solscan: https://solscan.io/tx/{signature}", "cyan")
+        return True
+    except Exception as e:
+        cprint(f"❌ Trade failed: {str(e)}", "red")
+        return False
+
+def main():
+    client = JupiterClient()
+    risk_agent = RiskAgent()
+    wallet_address = os.getenv("WALLET_ADDRESS")
+    if not wallet_address:
+        cprint("❌ WALLET_ADDRESS environment variable not set", "red")
+        return
+        
     start_time = datetime.now()
-    end_time = start_time + timedelta(hours=duration_hours)
+    end_time = start_time + timedelta(hours=VERIFICATION_DURATION_HOURS)
+    trade_amount_lamports = int(TRADE_AMOUNT_SOL * 1e9)
     
-    cprint(f"\n🔍 Starting trading verification for {wallet_address}", "cyan")
-    cprint(f"📅 Verifying from {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {end_time.strftime('%Y-%m-%d %H:%M:%S')}\n", "cyan")
+    cprint(f"🚀 Starting trading verification for {VERIFICATION_DURATION_HOURS} hours", "cyan")
+    cprint(f"⏰ Start time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}", "cyan")
+    cprint(f"⏰ End time: {end_time.strftime('%Y-%m-%d %H:%M:%S')}", "cyan")
+    cprint(f"💰 Trade amount: {TRADE_AMOUNT_SOL} SOL", "cyan")
+    cprint(f"⏱️ Trade interval: {TRADE_INTERVAL_SECONDS} seconds", "cyan")
     
-    client = ChainStackClient()
-    trades_verified = 0
-    total_volume = 0
+    last_trade_time = datetime.now() - timedelta(seconds=TRADE_INTERVAL_SECONDS)
     
     while datetime.now() < end_time:
         try:
-            # Get wallet balance
-            sol_balance = client.get_wallet_balance(wallet_address)
-            cprint(f"Current SOL Balance: {sol_balance:.6f} SOL", "cyan")
+            current_time = datetime.now()
+            time_since_last_trade = (current_time - last_trade_time).total_seconds()
             
-            # Check Solscan for recent transactions
-            response = requests.get(
-                f"https://public-api.solscan.io/account/transactions",
-                params={"account": wallet_address, "limit": 10},
-                headers={"accept": "application/json"}
-            )
-            
-            if response.status_code == 200:
-                transactions = response.json()
-                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if time_since_last_trade >= TRADE_INTERVAL_SECONDS:
+                cprint("\n🔄 Executing trades...", "cyan")
                 
-                for tx in transactions:
-                    tx_hash = tx.get('txHash', '')
-                    
-                    # Get detailed transaction info
-                    tx_response = requests.get(
-                        f"https://public-api.solscan.io/transaction/{tx_hash}",
-                        headers={"accept": "application/json"}
-                    )
-                    
-                    if tx_response.status_code == 200:
-                        tx_details = tx_response.json()
-                        status = tx_details.get("status") == "Success"
-                        fee = tx_details.get("fee", 0) / 1e9
-                        
-                        # Verify Jupiter swap
-                        is_swap = False
-                        swap_amount = 0
-                        for log in tx_details.get("logMessages", []):
-                            if "Program log: Instruction: Swap" in log:
-                                is_swap = True
-                                # Extract swap amount from logs if possible
-                                try:
-                                    amount_str = log.split("amount: ")[1].split()[0]
-                                    swap_amount = float(amount_str) / 1e6  # Convert from lamports
-                                except:
-                                    pass
-                        
-                        if is_swap and status:
-                            trades_verified += 1
-                            total_volume += swap_amount
-                            cprint(f"\n[{current_time}] ✅ Verified Trade:", "green")
-                            cprint(f"  Transaction: {tx_hash}", "cyan")
-                            cprint(f"  Amount: {swap_amount:.2f} USDC", "cyan")
-                            cprint(f"  Fee: {fee:.6f} SOL", "cyan")
-                            cprint(f"  View: https://solscan.io/tx/{tx_hash}", "cyan")
-                        elif is_swap:
-                            cprint(f"\n[{current_time}] ❌ Failed Trade:", "red")
-                            cprint(f"  Transaction: {tx_hash}", "red")
-                            cprint(f"  View: https://solscan.io/tx/{tx_hash}", "red")
-            
-            time.sleep(60)
+                # Trade SOL for AI16z
+                cprint("\n💱 Trading SOL for AI16z...", "cyan")
+                success = execute_trade(client, risk_agent, SOL_TOKEN, AI16Z_TOKEN, trade_amount_lamports)
+                if success:
+                    cprint("✅ AI16z trade completed", "green")
+                
+                time.sleep(30)  # Wait 30 seconds between trades
+                
+                # Trade SOL for SWARM
+                cprint("\n💱 Trading SOL for SWARM...", "cyan")
+                success = execute_trade(client, risk_agent, SOL_TOKEN, SWARM_TOKEN, trade_amount_lamports)
+                if success:
+                    cprint("✅ SWARM trade completed", "green")
+                
+                last_trade_time = current_time
+                
+            time_left = end_time - current_time
+            cprint(f"\n⏳ Time remaining: {str(time_left).split('.')[0]}", "cyan")
+            time.sleep(60)  # Check every minute
             
         except Exception as e:
-            cprint(f"❌ Error verifying trades: {e}", "red")
-            time.sleep(10)
-    
-    cprint("\n📊 Trading Verification Summary:", "cyan")
-    cprint(f"✅ Verified Trades: {trades_verified}", "green")
-    cprint(f"💰 Total Volume: {total_volume:.2f} USDC", "green")
-    cprint(f"⏱️ Duration: {duration_hours} hours", "cyan")
-    cprint(f"🔍 Monitored from {start_time.strftime('%Y-%m-%d %H:%M:%S')} to {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", "cyan")
+            cprint(f"❌ Error: {str(e)}", "red")
+            time.sleep(60)  # Wait a minute before retrying
+            
+    cprint("\n✅ Trading verification completed!", "green")
 
 if __name__ == "__main__":
-    try:
-        verify_trading()
-    except KeyboardInterrupt:
-        cprint("\n👋 Verification stopped by user", "yellow")
-    except Exception as e:
-        cprint(f"\n❌ Fatal error: {e}", "red")
+    main()
