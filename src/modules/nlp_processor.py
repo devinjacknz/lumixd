@@ -17,16 +17,36 @@ class NLPProcessor:
     async def process_instruction(self, text: str) -> Dict:
         """Process natural language trading instruction"""
         try:
-            # Prepare system prompt for instruction parsing
+            # Prepare system prompt for instruction parsing with multi-language support
             system_prompt = """
-            You are a trading instruction parser. Extract trading parameters from the given text.
-            Required parameters:
-            - action (buy/sell)
-            - token_symbol or token_address
-            - amount (in SOL)
-            Optional parameters:
-            - slippage (in %)
-            - urgency (high/medium/low)
+            You are a bilingual trading instruction parser supporting English and Chinese (中文).
+            Extract trading parameters from the given text.
+
+            Required parameters (必需参数):
+            - action/操作 (buy/sell, 买入/卖出)
+            - token_symbol/代币符号 or token_address/代币地址
+            - amount/数量 (in SOL/以SOL为单位)
+
+            Optional parameters (可选参数):
+            - slippage/滑点 (in %/百分比)
+            - urgency/紧急程度 (high/medium/low, 高/中/低)
+
+            Examples:
+            "Buy 500 AI16z tokens with 2% slippage" ->
+            {
+                "action": "buy",
+                "token_symbol": "AI16z",
+                "amount": 500,
+                "slippage": 2.0
+            }
+
+            "买入500个AI16z代币，滑点不超过2%" ->
+            {
+                "action": "buy",
+                "token_symbol": "AI16z",
+                "amount": 500,
+                "slippage": 2.0
+            }
             """
             
             # Get model response
@@ -59,13 +79,22 @@ class NLPProcessor:
     async def validate_parameters(self, params: Dict) -> Dict:
         """Validate and normalize trading parameters"""
         try:
-            # Validate required parameters
+            # Validate required parameters with bilingual messages
             if "action" not in params:
-                raise ValueError("Trading action (buy/sell) is required")
+                raise ValueError({
+                    "en": "Trading action (buy/sell) is required",
+                    "zh": "交易操作（买入/卖出）为必填项"
+                })
             if "token_symbol" not in params and "token_address" not in params:
-                raise ValueError("Token symbol or address is required")
+                raise ValueError({
+                    "en": "Token symbol or address is required",
+                    "zh": "代币符号或地址为必填项"
+                })
             if "amount" not in params:
-                raise ValueError("Trading amount is required")
+                raise ValueError({
+                    "en": "Trading amount is required",
+                    "zh": "交易数量为必填项"
+                })
                 
             # Normalize action
             params["action"] = params["action"].lower()
