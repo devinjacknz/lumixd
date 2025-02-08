@@ -5,9 +5,44 @@ Lumix DeepSeek Model Implementation
 import os
 import json
 import time
+from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from termcolor import cprint
 from .base_model import BaseModel, ModelResponse
+
+class DialogueContext:
+    """Maintains dialogue history and context for trading conversations"""
+    def __init__(self):
+        self.history: List[Dict[str, str]] = []
+        self.last_analysis: Optional[Dict[str, Any]] = None
+        self.risk_checks: Dict[str, Any] = {}
+        self.market_data: Dict[str, Any] = {}
+        
+    def add_message(self, role: str, content: str) -> None:
+        """Add a message to dialogue history"""
+        self.history.append({"role": role, "content": content})
+        if len(self.history) > 10:  # Keep last 10 messages
+            self.history.pop(0)
+            
+    def get_context(self) -> str:
+        """Get formatted dialogue context"""
+        return "\n".join([
+            f"{msg['role']}: {msg['content']}"
+            for msg in self.history[-5:]  # Last 5 messages for context
+        ])
+        
+    def update_market_data(self, token: str, data: Dict[str, Any]) -> None:
+        """Update market data for a token"""
+        self.market_data[token] = {
+            "data": data,
+            "timestamp": time.time()
+        }
+        
+    def clear(self) -> None:
+        """Clear dialogue context"""
+        self.history = []
+        self.last_analysis = None
+        self.risk_checks = {}
 
 class DeepSeekModel(BaseModel):
     """Implementation for DeepSeek's models"""
@@ -25,6 +60,7 @@ class DeepSeekModel(BaseModel):
         self.model_name = model_name
         self.base_url = base_url
         self.client = None
+        self.context = DialogueContext()
         print("✨ Initializing DeepSeek model via ollama...")
         print(f"Using model: {self.model_name}")
         super().__init__()
@@ -51,6 +87,7 @@ class DeepSeekModel(BaseModel):
         user_content: str,
         temperature: float = 0.7,
         max_tokens: int = 1024,
+        use_context: bool = True,
         **kwargs
     ) -> ModelResponse:
         """Generate a response using DeepSeek via ollama"""
@@ -58,15 +95,22 @@ class DeepSeekModel(BaseModel):
             if not self.client:
                 raise Exception("Client not initialized")
                 
-            # Prepare prompt with system and user content
+            # Prepare prompt with system, context, and user content
+            context_str = self.context.get_context() if use_context else ""
             full_prompt = f"""
 {system_prompt}
+
+对话历史 | Dialogue History:
+{context_str}
 
 用户输入 | User Input:
 {user_content}
 
 请用JSON格式回复 | Please respond in JSON format.
 Assistant:"""
+            
+            # Add message to context
+            self.context.add_message("user", user_content)
             
             # Call ollama API
             response = self.client.post(
@@ -118,10 +162,14 @@ Assistant:"""
                 "created": int(time.time())
             }
             
-            return ModelResponse(
+            response = ModelResponse(
                 content=json.dumps(response_content),
                 raw_response=formatted_response
             )
+            
+            # Add response to context
+            self.context.add_message("assistant", response.content)
+            return response
         except Exception as e:
             print(f"❌ DeepSeek generation error: {str(e)}")
             return ModelResponse(
@@ -194,4 +242,4 @@ Assistant:"""
             return {
                 'error': 'Failed to parse trade instruction',
                 'raw_response': response.content
-            }                                                                                                                                                                                                                                                                                                       
+            }                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
