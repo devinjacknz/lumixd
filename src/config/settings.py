@@ -27,6 +27,14 @@ TRADING_CONFIG: Dict[str, Any] = {
         "primary": None,  # Set via RPC_ENDPOINT environment variable
         "fallback": "https://api.mainnet-beta.solana.com"
     },
+    "chainstack": {
+        "use_enhanced_rpc": True,
+        "websocket_enabled": True,
+        "cache_duration": 300,
+        "retry_attempts": 3,
+        "timeout": 30,
+        "batch_size": 100
+    },
     "monitoring": {
         "min_sol_balance": 0.05,  # Minimum SOL balance
         "alert_on_failure": True,  # Alert on trade failures

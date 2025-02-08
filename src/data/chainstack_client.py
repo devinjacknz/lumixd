@@ -17,10 +17,23 @@ class ChainStackClient:
         if not base_url:
             raise ValueError("RPC_ENDPOINT environment variable is required")
         self.base_url = str(base_url)
-        self.ws_url = self.base_url.replace("https://", "wss://")
-        self.headers = {"Content-Type": "application/json"}
+        self.ws_url = os.getenv("CHAINSTACK_WS_ENDPOINT", "").strip()
+        if not self.ws_url:
+            self.ws_url = self.base_url.replace("https://", "wss://")
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": os.getenv("CHAINSTACK_API_KEY", "")
+        }
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests (Developer plan)
+        
+        # Load Chainstack configuration
+        from src.config.settings import TRADING_CONFIG
+        self.config = TRADING_CONFIG["chainstack"]
+        self.retry_attempts = self.config["retry_attempts"]
+        self.timeout = self.config["timeout"]
+        self.batch_size = self.config["batch_size"]
+        self.cache_duration = self.config["cache_duration"]
         
     def _rate_limit(self):
         current_time = time.time()
@@ -29,7 +42,7 @@ class ChainStackClient:
             time.sleep(self.min_request_interval - time_since_last)
         self.last_request_time = time.time()
         
-    def _post_rpc(self, method: str, params: list) -> dict:
+    def _post_rpc(self, method: str, params: list, retry_count: int = 0) -> dict:
         self._rate_limit()
         try:
             response = requests.post(
@@ -40,13 +53,44 @@ class ChainStackClient:
                     "id": method,
                     "method": method,
                     "params": params
-                }
+                },
+                timeout=self.timeout
             )
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            cprint(f"✨ Failed RPC call to {method}: {str(e)}", "red")
+            if retry_count < self.retry_attempts:
+                cprint(f"⚠️ RPC call failed, retrying {retry_count + 1}/{self.retry_attempts}...", "yellow")
+                time.sleep(2 ** retry_count)  # Exponential backoff
+                return self._post_rpc(method, params, retry_count + 1)
+            cprint(f"❌ Failed RPC call to {method}: {str(e)}", "red")
             return {}
+            
+    async def _batch_rpc(self, requests: list) -> list:
+        """Execute multiple RPC requests in a batch"""
+        self._rate_limit()
+        try:
+            batch_requests = []
+            for i in range(0, len(requests), self.batch_size):
+                batch = requests[i:i + self.batch_size]
+                batch_requests.append(
+                    asyncio.create_task(
+                        self._post_rpc(
+                            method=batch[0]["method"],
+                            params=batch[0]["params"]
+                        )
+                    )
+                )
+            
+            responses = []
+            for response in asyncio.as_completed(batch_requests):
+                result = await response
+                result.raise_for_status()
+                responses.extend(result.json())
+            return responses
+        except Exception as e:
+            cprint(f"❌ Batch RPC call failed: {str(e)}", "red")
+            return []
             
     def get_token_price(self, token_address: str) -> float:
         response = self._post_rpc("getTokenLargestAccounts", [token_address])
