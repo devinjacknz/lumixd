@@ -6,6 +6,8 @@ Handles automated trading execution and analysis
 import os
 import sys
 import time
+import json
+import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
@@ -13,24 +15,19 @@ import pandas as pd
 import numpy as np
 from termcolor import cprint
 from dotenv import load_dotenv
+from decimal import Decimal
 from src.monitoring.performance_monitor import PerformanceMonitor
 from src.monitoring.system_monitor import SystemMonitor
+from src.services.logging_service import logging_service
 from src import nice_funcs as n
 from src.data.ohlcv_collector import collect_all_tokens
-from typing import Dict, Any, Optional
-from decimal import Decimal
-from datetime import datetime
 from src.models import ModelFactory
 from src.data.jupiter_client import JupiterClient
 from src.data.raydium_client import RaydiumClient
 from src.data.chainstack_client import ChainStackClient
 from src.strategies.snap_strategy import SnapStrategy
-from src.monitoring.performance_monitor import PerformanceMonitor
-from src.monitoring.system_monitor import SystemMonitor
 from src.agents.risk_agent import RiskAgent
 from src.agents.focus_agent import FocusAgent
-import json
-from pathlib import Path
 from src.config import (
     USDC_SIZE,
     MAX_LOSS_PERCENTAGE,
@@ -515,34 +512,16 @@ class TradingAgent:
                 
             except Exception as e:
                 cprint(f"❌ Jupiter trade error: {str(e)}", "red")
-                return None
-                
-        except Exception as e:
-            cprint(f"❌ Error executing trade: {str(e)}", "red")
-            return None
-            # Get quote with optimized parameters
-            loop = asyncio.get_event_loop()
-            quote = await loop.run_in_executor(
-                None,
-                lambda: self.jupiter_client.get_quote(
-                    input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
-                    output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
-                    amount=str(int(float(trade_request['amount']) * 1e9))
+                await logging_service.log_error(
+                    f"Jupiter trade error: {str(e)}",
+                    {
+                        'error': str(e),
+                        'token': trade_request['token'],
+                        'direction': trade_request.get('direction', 'buy')
+                    },
+                    'trading'
                 )
-            )
-            if not quote:
-                cprint("❌ Failed to get quote", "red")
                 return None
-                
-            # Execute swap
-            signature = await loop.run_in_executor(
-                None,
-                lambda: self.jupiter_client.execute_swap(
-                    quote_response=quote,
-                    wallet_pubkey=wallet_address,
-                    use_shared_accounts=True
-                )
-            )
             
             if signature:
                 # Update metrics
@@ -888,7 +867,7 @@ class TradingAgent:
                             signature = self.execute_trade(trade_request)
                             execution_time = int((time.time() - start_time) * 1000)
                             
-                            self.performance_monitor.log_trade_metrics({
+                            await self.performance_monitor.log_trade_metrics({
                                 'token': token,
                                 'direction': analysis['action'],
                                 'amount': trade_size,
@@ -906,7 +885,7 @@ class TradingAgent:
                                 self.last_trade_time = datetime.now()
                                 
                                 # Monitor trading interval
-                                self.system_monitor.monitor_trading_interval(
+                                await self.system_monitor.monitor_trading_interval(
                                     token=token,
                                     last_trade_time=self.last_trade_time,
                                     instance_id=self.instance_id
@@ -917,7 +896,7 @@ class TradingAgent:
                             
                     except Exception as e:
                         cprint(f"❌ Error trading {token}: {str(e)}", "red")
-                        self.performance_monitor.log_trade_metrics({
+                        await self.performance_monitor.log_trade_metrics({
                             'token': token,
                             'direction': 'NEUTRAL',
                             'amount': 0,
