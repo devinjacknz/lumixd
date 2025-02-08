@@ -99,14 +99,25 @@ class RaydiumClient:
                     
         raise Exception(f"Request failed after {self.retry_attempts} attempts: {str(last_error)}")
         
-    async def get_quote(self, input_mint: str, output_mint: str, amount: str) -> Optional[Dict]:
-        """Get quote from Raydium V3 API using compute/swap-base-in endpoint"""
+    async def get_quote(self, input_mint: str, output_mint: str, amount: str, swap_mode: str = 'ExactIn') -> Optional[Dict]:
+        """Get quote from Raydium V3 API using compute/swap-base-in endpoint
+        
+        Args:
+            input_mint: Input token mint address
+            output_mint: Output token mint address
+            amount: Amount in smallest denomination (e.g., lamports for SOL)
+            swap_mode: 'ExactIn' for exact input amount, 'ExactOut' for exact output amount
+            
+        Returns:
+            Quote data or None if error occurs
+        """
         try:
+            endpoint = '/compute/swap-base-in' if swap_mode == 'ExactIn' else '/compute/swap-base-out'
             params = {
                 'inputMint': input_mint,
                 'outputMint': output_mint,
                 'amount': amount,
-                'slippageBps': self.slippage_bps,
+                'slippageBps': self.slippage_bps,  # Using 250 bps (2.5%) for optimal execution
                 'txVersion': 'V0'  # Use versioned transactions
             }
             
@@ -117,15 +128,29 @@ class RaydiumClient:
             print(f"滑点 | Slippage: {self.slippage_bps/100}%")
             
             try:
-                data = await self._make_request('get', '/compute/swap-base-in', params=params, base_url=self.TRANSACTION_URL, headers=self.headers)
+                data = await self._make_request('get', endpoint, params=params, base_url=self.TRANSACTION_URL, headers=self.headers)
                 print(f"\n✅ 获取报价成功 | Quote received successfully")
+                print(f"输入代币 | Input token: {input_mint}")
+                print(f"输出代币 | Output token: {output_mint}")
+                print(f"输入数量 | Input amount: {amount}")
                 print(f"输出数量 | Output amount: {data.get('outAmount', 'unknown')}")
                 print(f"价格影响 | Price impact: {data.get('priceImpact', '0')}%")
                 print(f"交易版本 | Transaction version: {params['txVersion']}")
+                print(f"交易模式 | Swap mode: {swap_mode}")
+                print(f"滑点设置 | Slippage: {self.slippage_bps/100}%")
                 
                 await logging_service.log_user_action(
                     'quote_received',
-                    {'quote': data},
+                    {
+                        'quote': data,
+                        'params': {
+                            'input_mint': input_mint,
+                            'output_mint': output_mint,
+                            'amount': amount,
+                            'swap_mode': swap_mode,
+                            'slippage_bps': self.slippage_bps
+                        }
+                    },
                     'system'
                 )
                 return data
@@ -137,11 +162,28 @@ class RaydiumClient:
                     f"{error_msg['zh']} | {error_msg['en']}",
                     {
                         'error': str(e),
-                        'params': params
+                        'params': {
+                            'input_mint': input_mint,
+                            'output_mint': output_mint,
+                            'amount': amount,
+                            'swap_mode': swap_mode,
+                            'slippage_bps': self.slippage_bps,
+                            'endpoint': endpoint
+                        }
                     },
                     'system'
                 )
                 return None
+                
+        except ValueError as e:
+            error_msg = ERROR_MESSAGES['quote_failed']
+            print(f"\n❌ Invalid swap mode: {swap_mode}. Must be 'ExactIn' or 'ExactOut'")
+            await logging_service.log_error(
+                f"{error_msg['zh']} | {error_msg['en']}",
+                {'error': f"Invalid swap mode: {swap_mode}"},
+                'system'
+            )
+            return None
                         
         except aiohttp.ClientError as e:
             error_msg = ERROR_MESSAGES['network_error']
