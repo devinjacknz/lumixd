@@ -59,11 +59,11 @@ class JupiterClient:
                 "outputMint": output_mint,
                 "amount": amount,
                 "slippageBps": int(os.getenv("DEFAULT_SLIPPAGE_BPS", "250")),
-                "onlyDirectRoutes": False,
-                "asLegacyTransaction": True,
-                "wrapUnwrapSOL": True,
-                "useSharedAccounts": use_shared_accounts,
-                "platformFeeBps": 0
+                "onlyDirectRoutes": "false",
+                "asLegacyTransaction": "true",
+                "wrapUnwrapSOL": "true",
+                "useSharedAccounts": "true" if use_shared_accounts else "false",
+                "platformFeeBps": "0"
             }
             cprint(f"🔄 Getting quote with params: {json.dumps(params, indent=2)}", "cyan")
             
