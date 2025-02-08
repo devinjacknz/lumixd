@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.api.v1.routes import trades, strategies, config, monitor, instances
+from src.api.v1.routes import trades, strategies, config, monitor, instances, websocket
 from src.api.v1.middleware.rate_limit import RateLimitMiddleware
 from src.services.instance_manager import InstanceManager
 from src.services.balance_manager import BalanceManager
@@ -39,6 +39,7 @@ app.include_router(strategies.router, prefix="/api/v1/strategies", tags=["strate
 app.include_router(config.router, prefix="/api/v1/config", tags=["config"])
 app.include_router(monitor.router, prefix="/api/v1/monitor", tags=["monitor"])
 app.include_router(instances.router, prefix="/api/v1/instances", tags=["instances"])
+app.include_router(websocket.router, tags=["websocket"])
 
 @app.get("/")
 async def root():
