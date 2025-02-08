@@ -53,12 +53,12 @@ ACTIVE_AGENTS = {
 async def run_agents():
     """Run all active agents in sequence"""
     try:
-        # Initialize active agents
-        trading_agent = TradingAgent() if ACTIVE_AGENTS['trading'] else None
-        risk_agent = RiskAgent() if ACTIVE_AGENTS['risk'] else None
-        strategy_agent = StrategyAgent() if ACTIVE_AGENTS['strategy'] else None
-        copybot_agent = CopyBotAgent() if ACTIVE_AGENTS['copybot'] else None
-        sentiment_agent = SentimentAgent() if ACTIVE_AGENTS['sentiment'] else None
+        # Initialize active agents with proper instance IDs
+        trading_agent = TradingAgent(instance_id='main') if ACTIVE_AGENTS['trading'] else None
+        risk_agent = RiskAgent(instance_id='main') if ACTIVE_AGENTS['risk'] else None
+        strategy_agent = StrategyAgent(instance_id='main') if ACTIVE_AGENTS['strategy'] else None
+        copybot_agent = CopyBotAgent(instance_id='main') if ACTIVE_AGENTS['copybot'] else None
+        sentiment_agent = SentimentAgent(instance_id='main') if ACTIVE_AGENTS['sentiment'] else None
 
         while True:
             try:

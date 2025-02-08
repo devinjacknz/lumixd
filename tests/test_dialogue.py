@@ -41,6 +41,43 @@ MOCK_RESPONSES = {
     }
 }
 
+async def test_trade_command(agent: TradingAgent, command: str, is_chinese: bool = False):
+    """Helper function to test trade commands"""
+    print(f"\n🔍 Testing {'Chinese' if is_chinese else 'English'} trading command...")
+    print(f"Command: {command}")
+    
+    try:
+        response = await agent.execute_dialogue_trade(command)
+        print(f"Response: {response}")
+        
+        # Verify response structure
+        assert isinstance(response, dict), "Response should be a dictionary"
+        assert "status" in response, "Response should have status field"
+        assert "message" in response, "Response should have message field"
+        assert "message_cn" in response, "Response should have message_cn field"
+        
+        # For valid trade commands, verify success
+        if "负" not in command and "-" not in command:
+            assert response["status"] == "success", f"Valid trade command should succeed: {response['message']}"
+            if is_chinese:
+                assert "交易执行成功" in response["message_cn"], "Should have Chinese success message"
+            else:
+                assert "Trade executed successfully" in response["message"], "Should have English success message"
+            print("✅ Trade command executed successfully")
+        else:
+            assert response["status"] == "error", "Invalid trade command should fail"
+            if is_chinese:
+                assert "金额无效" in response["message_cn"], "Should have Chinese error message"
+            else:
+                assert "Invalid amount" in response["message"], "Should have English error message"
+            print("✅ Invalid trade command rejected correctly")
+        
+        return response
+        
+    except Exception as e:
+        print(f"❌ Test failed: {str(e)}")
+        raise
+
 async def test_dialogue_trading():
     """Test bilingual dialogue trading functionality"""
     # Create mock objects
@@ -79,74 +116,41 @@ async def test_dialogue_trading():
          patch('src.models.ollama_model.OllamaModel.generate_response', mock_generate):
         
         agent = TradingAgent()
-    
-    async def test_trade_command(command: str, is_chinese: bool = False):
-        """Helper function to test trade commands"""
-        print(f"\n🔍 Testing {'Chinese' if is_chinese else 'English'} trading command...")
-        print(f"Command: {command}")
         
-        try:
-            
-            response = await agent.execute_dialogue_trade(command)
-            print(f"Response: {response}")
-            
-            # Verify response structure
-            assert isinstance(response, dict), "Response should be a dictionary"
-            assert "status" in response, "Response should have status field"
-            assert "message" in response, "Response should have message field"
-            assert "message_cn" in response, "Response should have message_cn field"
-            
-            # For valid trade commands, verify success
-            if "负" not in command and "-" not in command:
-                assert response["status"] == "success", f"Valid trade command should succeed: {response['message']}"
-                if is_chinese:
-                    assert "交易执行成功" in response["message_cn"], "Should have Chinese success message"
-                else:
-                    assert "Trade executed successfully" in response["message"], "Should have English success message"
-                print("✅ Trade command executed successfully")
-            else:
-                assert response["status"] == "error", "Invalid trade command should fail"
-                if is_chinese:
-                    assert "金额无效" in response["message_cn"], "Should have Chinese error message"
-                else:
-                    assert "Invalid amount" in response["message"], "Should have English error message"
-                print("✅ Invalid trade command rejected correctly")
-            
-            return response
-            
-        except Exception as e:
-            print(f"❌ Test failed: {str(e)}")
-            raise
-    
-    # Test valid Chinese trading command
-    cn_response = await test_trade_command(
-        "买入500个SOL代币，滑点不超过2%",
-        is_chinese=True
-    )
-    assert cn_response["status"] == "success", "Valid Chinese trade should succeed"
-    assert "交易执行成功" in cn_response["message_cn"], "Should have Chinese success message"
-    
-    # Test valid English trading command
-    en_response = await test_trade_command(
-        "Buy 500 SOL tokens with max 2% slippage"
-    )
-    assert en_response["status"] == "success", "Valid English trade should succeed"
-    assert "Trade executed successfully" in en_response["message"], "Should have English success message"
-    
-    # Test error handling in Chinese
-    cn_error = await test_trade_command(
-        "买入负100个SOL代币",  # Invalid amount
-        is_chinese=True
-    )
-    assert cn_error["status"] == "error", "Expected error for invalid Chinese input"
-    assert "金额无效" in cn_error["message_cn"], "Should have Chinese error message"
-    
-    # Test error handling in English
-    en_error = await test_trade_command(
-        "Buy -100 SOL tokens"  # Invalid amount
-    )
-    assert en_error["status"] == "error", "Expected error for invalid English input"
-    assert "Invalid amount" in en_error["message"], "Should have English error message"
+        # Test valid Chinese trading command
+        cn_response = await test_trade_command(
+            agent,
+            "买入500个SOL代币，滑点不超过2%",
+            is_chinese=True
+        )
+        assert cn_response["status"] == "success", "Valid Chinese trade should succeed"
+        assert "交易执行成功" in cn_response["message_cn"], "Should have Chinese success message"
+        
+        # Test valid English trading command
+        en_response = await test_trade_command(
+            agent,
+            "Buy 500 SOL tokens with max 2% slippage"
+        )
+        assert en_response["status"] == "success", "Valid English trade should succeed"
+        assert "Trade executed successfully" in en_response["message"], "Should have English success message"
+        
+        # Test error handling in Chinese
+        cn_error = await test_trade_command(
+            agent,
+            "买入负100个SOL代币",  # Invalid amount
+            is_chinese=True
+        )
+        assert cn_error["status"] == "error", "Expected error for invalid Chinese input"
+        assert "金额无效" in cn_error["message_cn"], "Should have Chinese error message"
+        
+        # Test error handling in English
+        en_error = await test_trade_command(
+            agent,
+            "Buy -100 SOL tokens",  # Invalid amount
+            is_chinese=False
+        )
+        assert en_error["status"] == "error", "Expected error for invalid English input"
+        assert "Invalid amount" in en_error["message"], "Should have English error message"
     
     print("\n✅ All dialogue trading tests completed successfully!")
     
