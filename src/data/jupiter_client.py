@@ -21,8 +21,8 @@ load_dotenv()
 
 class JupiterClient:
     def __init__(self):
-        self.base_url = "https://quote-api.jup.ag"
-        self.api_version = "v6"
+        self.base_url = "https://api.jup.ag/swap"
+        self.api_version = "v1"
         self.headers = {"Content-Type": "application/json"}
         self.slippage_bps = 250
         self.max_retries = 3
@@ -109,8 +109,9 @@ class JupiterClient:
                     f"{self.base_url}/{self.api_version}/swap",
                     headers=self.headers,
                     json={
-                        "quoteResponse": quote_response,
+                        "route": quote_response,
                         "userPublicKey": wallet_pubkey,
+                        "slippageBps": 250,
                         "computeUnitPriceMicroLamports": 1000,
                         "asLegacyTransaction": True,
                         "wrapUnwrapSOL": True,
@@ -164,31 +165,9 @@ class JupiterClient:
                     max_retries = 3
                     retry_delay = 1
                     
-                    # Get swap transaction
-                    async with session.post(
-                        f"{self.base_url}/{self.api_version}/swap",
-                        headers=self.headers,
-                        json={
-                            "quoteResponse": quote_response,
-                            "userPublicKey": wallet_pubkey,
-                            "wrapUnwrapSOL": True,
-                            "asLegacyTransaction": True,
-                            "computeUnitPriceMicroLamports": 1000,
-                            "asLegacyTransaction": True,
-                            "wrapUnwrapSOL": True,
-                            "useSharedAccounts": True,
-                            "computeUnitLimit": 1400000,
-                            "skipUserAccountsCheck": True,
-                            "minContextSlot": quote_response.get("contextSlot"),
-                            "maxAccounts": 64,
-                            "prioritizationFeeLamports": 10000
-                        }
-                    ) as response:
-                        response.raise_for_status()
-                        result = await response.json()
-                        tx_data = result.get("swapTransaction")
-                        if not tx_data:
-                            raise ValueError("No swap transaction returned")
+                    # We already have the transaction data from the first swap request
+                    if not tx_data:
+                        raise ValueError("No transaction data received")
                     
                 signed_tx = tx_data
                 cprint("✅ Using pre-signed transaction from Jupiter", "green")
