@@ -84,6 +84,9 @@ async def test_jupiter_v6_trading():
                 (200, success_quote)  # Backup success response
             ]
             
+            # Reset MOCK_RESPONSES to ensure consistent state
+            MOCK_RESPONSES['quote'] = success_quote
+            
             # Create response sequence for execute_swap
             self.post_responses = [
                 (429, {"error": "Too many requests"}),  # First attempt fails
@@ -97,10 +100,13 @@ async def test_jupiter_v6_trading():
                 response.status = status
                 response.json = AsyncMock(return_value=data)
                 response.raise_for_status = AsyncMock(side_effect=Exception("Server error") if status >= 500 else None)
-                # Ensure slippage matches test expectations
-                if status == 200:
-                    data['slippageBps'] = 250
                 self.get_mock_responses.append(response)
+                
+            # Ensure the success response has the correct slippage
+            self.get_mock_responses[-1].json = AsyncMock(return_value={
+                **MOCK_RESPONSES['quote'],
+                'slippageBps': 250
+            })
                 
             self.post_mock_responses = []
             for status, data in self.post_responses:
