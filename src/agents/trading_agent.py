@@ -392,23 +392,15 @@ class TradingAgent(BaseAgent):
                 
             # Check balances first
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        self.jupiter_client.rpc_url,
-                        headers={"Content-Type": "application/json"},
-                        json={
-                            "jsonrpc": "2.0",
-                            "id": "get-balance",
-                            "method": "getBalance",
-                            "params": [wallet_address]
-                        }
-                    ) as response:
-                        response.raise_for_status()
-                        result = await response.json()
-                        balance = float(result.get("result", {}).get("value", 0)) / 1e9
-                        if balance < self.min_trade_size:
-                            cprint(f"❌ Trade failed: Insufficient SOL balance: {balance}", "red")
-                            return None
+                # Get quote first to check if we can trade
+                quote = await self.jupiter_client.get_quote(
+                    input_mint=self.sol_token if trade_request.get('direction') == 'buy' else trade_request['token'],
+                    output_mint=trade_request['token'] if trade_request.get('direction') == 'buy' else self.sol_token,
+                    amount=str(int(float(trade_request['amount']) * 1e9))  # Convert to lamports
+                )
+                if not quote:
+                    cprint(f"❌ Trade failed: Unable to get quote", "red")
+                    return None
             except Exception as e:
                 cprint(f"❌ Trade failed: Error checking balance: {str(e)}", "red")
                 return None
