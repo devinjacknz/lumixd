@@ -40,11 +40,9 @@ async def test_jupiter_v6_trading():
             self._call_count = 0
             
         async def __aenter__(self):
+            response = self.responses[min(self._call_count, len(self.responses) - 1)]
             self._call_count += 1
-            if self._call_count <= len(self.responses):
-                response = self.responses[self._call_count - 1]
-                return response
-            return self.responses[-1]
+            return response
             
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             return None
@@ -78,14 +76,17 @@ async def test_jupiter_v6_trading():
                 **MOCK_RESPONSES['quote'],
                 'slippageBps': 250  # Ensure slippage matches test expectations
             }
-            self.get_responses = [
-                (429, {"error": "Too many requests"}),  # First attempt fails
-                (200, success_quote),  # Second attempt succeeds
-                (200, success_quote)  # Backup success response
-            ]
+            error_response = AsyncMock()
+            error_response.status = 429
+            error_response.json = AsyncMock(return_value={"error": "Too many requests"})
+            error_response.raise_for_status = AsyncMock()
             
-            # Reset MOCK_RESPONSES to ensure consistent state
-            MOCK_RESPONSES['quote'] = success_quote
+            success_response = AsyncMock()
+            success_response.status = 200
+            success_response.json = AsyncMock(return_value=success_quote)
+            success_response.raise_for_status = AsyncMock()
+            
+            self.get_mock_responses = [error_response, success_response]
             
             # Create response sequence for execute_swap
             self.post_responses = [
@@ -93,20 +94,21 @@ async def test_jupiter_v6_trading():
                 (200, MOCK_RESPONSES['swap'])  # Second attempt succeeds
             ]
             
-            # Create mock responses
-            self.get_mock_responses = []
-            for status, data in self.get_responses:
-                response = AsyncMock()
-                response.status = status
-                response.json = AsyncMock(return_value=data)
-                response.raise_for_status = AsyncMock(side_effect=Exception("Server error") if status >= 500 else None)
-                self.get_mock_responses.append(response)
-                
-            # Ensure the success response has the correct slippage
-            self.get_mock_responses[-1].json = AsyncMock(return_value={
-                **MOCK_RESPONSES['quote'],
-                'slippageBps': 250
-            })
+            # Create post responses
+            post_error = AsyncMock()
+            post_error.status = 429
+            post_error.json = AsyncMock(return_value={"error": "Too many requests"})
+            post_error.raise_for_status = AsyncMock()
+            
+            post_success = AsyncMock()
+            post_success.status = 200
+            post_success.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
+            post_success.raise_for_status = AsyncMock()
+            
+            self.post_mock_responses = [post_error, post_success]
+            
+            # Reset call count for each test
+            self._call_count = 0
                 
             self.post_mock_responses = []
             for status, data in self.post_responses:
