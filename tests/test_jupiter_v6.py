@@ -43,13 +43,14 @@ async def test_jupiter_v6_trading():
     success_response.json = AsyncMock(return_value=MOCK_RESPONSES['quote'])
     
     # Create mock session class for get_quote
+    mock_response = AsyncMock()
+    mock_response.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
+    mock_response.__aexit__ = AsyncMock()
+    
     mock_session = AsyncMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock()
-    mock_session.get = AsyncMock()
-    mock_session.get.return_value = AsyncMock()
-    mock_session.get.return_value.__aenter__ = AsyncMock(side_effect=[error_response, error_response, success_response])
-    mock_session.get.return_value.__aexit__ = AsyncMock()
+    mock_session.get = AsyncMock(return_value=mock_response)
     
     # Test get_quote with retry mechanism
     with patch('aiohttp.ClientSession', return_value=mock_session), \
@@ -78,11 +79,12 @@ async def test_jupiter_v6_trading():
     swap_success_response.status = 200
     swap_success_response.json = AsyncMock(return_value=MOCK_RESPONSES['swap'])
     
-    # Update mock session for execute_swap
-    mock_session.post = AsyncMock()
-    mock_session.post.return_value = AsyncMock()
-    mock_session.post.return_value.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
-    mock_session.post.return_value.__aexit__ = AsyncMock()
+    # Create mock response for execute_swap
+    mock_swap_response = AsyncMock()
+    mock_swap_response.__aenter__ = AsyncMock(side_effect=[swap_error_response, swap_success_response])
+    mock_swap_response.__aexit__ = AsyncMock()
+    
+    mock_session.post = AsyncMock(return_value=mock_swap_response)
     wallet_address = "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
     
     with patch('aiohttp.ClientSession', return_value=mock_session), \
@@ -103,11 +105,12 @@ async def test_jupiter_v6_trading():
     error_response.status = 500
     error_response.json = AsyncMock(return_value={"error": "Internal server error"})
     
-    # Update mock session for error handling
-    mock_session.get = AsyncMock()
-    mock_session.get.return_value = AsyncMock()
-    mock_session.get.return_value.__aenter__ = AsyncMock(return_value=error_response)
-    mock_session.get.return_value.__aexit__ = AsyncMock()
+    # Create mock response for error handling
+    mock_error_response = AsyncMock()
+    mock_error_response.__aenter__ = AsyncMock(return_value=error_response)
+    mock_error_response.__aexit__ = AsyncMock()
+    
+    mock_session.get = AsyncMock(return_value=mock_error_response)
     
     with patch('aiohttp.ClientSession', return_value=mock_session):
         try:
